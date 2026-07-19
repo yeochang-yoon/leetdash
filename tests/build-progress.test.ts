@@ -33,11 +33,11 @@ describe("build-progress", () => {
   it("builds per-user progress from checked-in submission folders", async () => {
     const repo = await mkdtemp(path.join(tmpdir(), "progress-radar-"));
     await mkdir(path.join(repo, "data"), { recursive: true });
-    await mkdir(path.join(repo, "submissions", "ada", "top-interview-easy", "546"), { recursive: true });
+    await mkdir(path.join(repo, "submissions", "ada", "top-interview-easy", "1"), { recursive: true });
     await mkdir(path.join(repo, "submissions", "ada", "leetcode-75", "1"), { recursive: true });
     await mkdir(path.join(repo, "submissions", "ada", "leetcode-75", "1768"), { recursive: true });
     await mkdir(path.join(repo, "submissions", "ada", "top-interview-150", "88"), { recursive: true });
-    await mkdir(path.join(repo, "submissions", "ada", "top-interview-easy", "721"), { recursive: true });
+    await mkdir(path.join(repo, "submissions", "ada", "top-interview-easy", "20"), { recursive: true });
     await mkdir(path.join(repo, "submissions", "ada", "solutions", "20"), { recursive: true });
     await mkdir(path.join(repo, "submissions", "ada", "top-interview-easy", "two-sum"), { recursive: true });
 
@@ -67,8 +67,8 @@ describe("build-progress", () => {
         {
           key: "top-interview-easy",
           items: [
-            { slug: "two-sum", order: 1, section: "Array", submissionKey: "546" },
-            { slug: "valid-parentheses", order: 2, section: "Others", submissionKey: "721" },
+            { slug: "two-sum", order: 1, section: "Array", submissionKey: "1" },
+            { slug: "valid-parentheses", order: 2, section: "Others", submissionKey: "20" },
           ],
         },
         {
@@ -87,7 +87,7 @@ describe("build-progress", () => {
     await writeJson(path.join(repo, "data", "users.json"), {
       users: [{ id: "ada", displayName: "Ada Lovelace", githubUsername: "ada" }],
     });
-    await writeFile(path.join(repo, "submissions", "ada", "top-interview-easy", "546", "solution.ts"), "// solved\n");
+    await writeFile(path.join(repo, "submissions", "ada", "top-interview-easy", "1", "solution.ts"), "// solved\n");
     await writeJson(path.join(repo, "submissions", "ada", "leetcode-75", "1", "meta.json"), {
       status: "reviewing",
       notes: "Duplicate source should lose to solved.",
@@ -102,7 +102,7 @@ describe("build-progress", () => {
       language: "TypeScript",
       notes: "Needs another pass.",
     });
-    await writeFile(path.join(repo, "submissions", "ada", "top-interview-easy", "721", "Solution.java"), "// solved\n");
+    await writeFile(path.join(repo, "submissions", "ada", "top-interview-easy", "20", "Solution.java"), "// solved\n");
     await writeFile(path.join(repo, "submissions", "ada", "top-interview-150", "88", "solution.py"), "# solved\n");
 
     await execFileAsync(process.execPath, [scriptPath], {
@@ -143,20 +143,20 @@ describe("build-progress", () => {
         problemSlug: "two-sum",
         status: "SOLVED",
         sourceKey: "top-interview-easy",
-        submissionKey: "546",
+        submissionKey: "1",
         language: "TS",
-        solutionPath: "submissions/ada/top-interview-easy/546/solution.ts",
-        githubUrl: "https://github.com/example/progress/blob/master/submissions/ada/top-interview-easy/546/solution.ts",
+        solutionPath: "submissions/ada/top-interview-easy/1/solution.ts",
+        githubUrl: "https://github.com/example/progress/blob/master/submissions/ada/top-interview-easy/1/solution.ts",
         source: "solution-file",
       }),
       expect.objectContaining({
         problemSlug: "valid-parentheses",
         status: "SOLVED",
         sourceKey: "top-interview-easy",
-        submissionKey: "721",
+        submissionKey: "20",
         language: "JAVA",
-        solutionPath: "submissions/ada/top-interview-easy/721/Solution.java",
-        githubUrl: "https://github.com/example/progress/blob/master/submissions/ada/top-interview-easy/721/Solution.java",
+        solutionPath: "submissions/ada/top-interview-easy/20/Solution.java",
+        githubUrl: "https://github.com/example/progress/blob/master/submissions/ada/top-interview-easy/20/Solution.java",
         source: "solution-file",
       }),
     ]);
@@ -165,8 +165,8 @@ describe("build-progress", () => {
   it("builds per-user daily activity from git add timestamps", async () => {
     const repo = await mkdtemp(path.join(tmpdir(), "progress-radar-git-"));
     await mkdir(path.join(repo, "data"), { recursive: true });
-    await mkdir(path.join(repo, "submissions", "ada", "top-interview-easy", "546"), { recursive: true });
-    await mkdir(path.join(repo, "submissions", "ada", "top-interview-easy", "721"), { recursive: true });
+    await mkdir(path.join(repo, "submissions", "ada", "top-interview-easy", "1"), { recursive: true });
+    await mkdir(path.join(repo, "submissions", "ada", "top-interview-easy", "20"), { recursive: true });
     await mkdir(path.join(repo, "submissions", "ada", "top-interview-easy", "3"), { recursive: true });
     await mkdir(path.join(repo, "submissions", "ada", "top-interview-easy", "15"), { recursive: true });
     await mkdir(path.join(repo, "submissions", "ada", "leetcode-75", "1768"), { recursive: true });
@@ -197,8 +197,8 @@ describe("build-progress", () => {
         {
           key: "top-interview-easy",
           items: [
-            { slug: "two-sum", order: 1, section: "Array", submissionKey: "546" },
-            { slug: "valid-parentheses", order: 2, section: "Others", submissionKey: "721" },
+            { slug: "two-sum", order: 1, section: "Array", submissionKey: "1" },
+            { slug: "valid-parentheses", order: 2, section: "Others", submissionKey: "20" },
             {
               slug: "longest-substring-without-repeating-characters",
               order: 3,
@@ -218,10 +218,10 @@ describe("build-progress", () => {
       users: [{ id: "ada", displayName: "Ada Lovelace", githubUsername: "ada" }],
     });
 
-    await writeFile(path.join(repo, "submissions", "ada", "top-interview-easy", "546", "solution.ts"), "// solved\n");
+    await writeFile(path.join(repo, "submissions", "ada", "top-interview-easy", "1", "solution.ts"), "// solved\n");
     await commitAll(repo, "add two sum", "2026-07-17T15:30:00.000Z");
 
-    await writeFile(path.join(repo, "submissions", "ada", "top-interview-easy", "721", "Solution.java"), "// solved\n");
+    await writeFile(path.join(repo, "submissions", "ada", "top-interview-easy", "20", "Solution.java"), "// solved\n");
     await writeJson(path.join(repo, "submissions", "ada", "top-interview-easy", "3", "meta.json"), {
       status: "skipped",
     });
@@ -246,8 +246,8 @@ describe("build-progress", () => {
         solved: 3,
         submissions: [
           { problemSlug: "3sum", sourceKey: "top-interview-easy", submissionKey: "15" },
-          { problemSlug: "two-sum", sourceKey: "top-interview-easy", submissionKey: "546" },
-          { problemSlug: "valid-parentheses", sourceKey: "top-interview-easy", submissionKey: "721" },
+          { problemSlug: "two-sum", sourceKey: "top-interview-easy", submissionKey: "1" },
+          { problemSlug: "valid-parentheses", sourceKey: "top-interview-easy", submissionKey: "20" },
         ],
       },
     ]);
@@ -256,21 +256,21 @@ describe("build-progress", () => {
   it("records submittedAt from the latest commit that touched the submission artifact", async () => {
     const repo = await mkdtemp(path.join(tmpdir(), "progress-radar-git-"));
     await mkdir(path.join(repo, "data"), { recursive: true });
-    await mkdir(path.join(repo, "submissions", "ada", "top-interview-easy", "546"), { recursive: true });
+    await mkdir(path.join(repo, "submissions", "ada", "top-interview-easy", "1"), { recursive: true });
 
     await writeJson(path.join(repo, "data", "problem-catalog.json"), {
       problems: [{ leetcodeId: 1, slug: "two-sum", title: "Two Sum", difficulty: "easy" }],
       lists: [
         {
           key: "top-interview-easy",
-          items: [{ slug: "two-sum", order: 1, section: "Array", submissionKey: "546" }],
+          items: [{ slug: "two-sum", order: 1, section: "Array", submissionKey: "1" }],
         },
       ],
     });
     await writeJson(path.join(repo, "data", "users.json"), {
       users: [{ id: "ada", displayName: "Ada Lovelace", githubUsername: "ada" }],
     });
-    await writeFile(path.join(repo, "submissions", "ada", "top-interview-easy", "546", "solution.ts"), "// solved\n");
+    await writeFile(path.join(repo, "submissions", "ada", "top-interview-easy", "1", "solution.ts"), "// solved\n");
 
     await runGit(repo, ["init"]);
     await runGit(repo, ["config", "user.email", "ada@example.com"]);
@@ -283,7 +283,7 @@ describe("build-progress", () => {
     expect(progress.users[0].submissions[0]).toMatchObject({
       problemSlug: "two-sum",
       sourceKey: "top-interview-easy",
-      submissionKey: "546",
+      submissionKey: "1",
       submittedAt: "2024-02-03T04:05:06.000Z",
     });
   });

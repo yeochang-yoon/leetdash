@@ -6,11 +6,11 @@
 
 | 소스 | `sourceKey` | `submissionKey` 기준 | 예시 경로 |
 | --- | --- | --- | --- |
-| Top Interview Questions Easy | `top-interview-easy` | Explore URL의 마지막 숫자 | `submissions/<githubUsername>/top-interview-easy/546/solution.ts` |
+| Top Interview Questions Easy | `top-interview-easy` | 문제 고유 LeetCode 번호 | `submissions/<githubUsername>/top-interview-easy/66/solution.ts` |
 | LeetCode 75 | `leetcode-75` | 문제 제목 앞 LeetCode 번호 | `submissions/<githubUsername>/leetcode-75/1768/solution.ts` |
 | Top Interview 150 | `top-interview-150` | 문제 제목 앞 LeetCode 번호 | `submissions/<githubUsername>/top-interview-150/88/solution.ts` |
 
-예를 들어 `https://leetcode.com/explore/featured/card/top-interview-questions-easy/92/array/546/`의 제출 키는 `546`입니다. `1768. Merge Strings Alternately`는 `1768`, `88. Merge Sorted Array`는 `88`입니다.
+예를 들어 `https://leetcode.com/problems/plus-one/description/`의 `Plus One`은 LeetCode 문제 번호가 `66`이므로 제출 키도 `66`입니다. Explore URL의 마지막 숫자는 제출 키로 쓰지 않습니다. `1768. Merge Strings Alternately`는 `1768`, `88. Merge Sorted Array`는 `88`입니다.
 
 소규모 LeetCode 스터디 그룹을 위한 진행 현황 대시보드입니다. 참가자는 이 레포에서 각자 브랜치를 만들고 풀이를 추가합니다. 변경 사항이 `master`에 머지되고 사이트가 다시 빌드되면 공식 대시보드가 갱신됩니다.
 
@@ -61,7 +61,7 @@ PR은 `validate` 검증과 리뷰 조건을 통과하면 다른 PR의 GitHub Pag
 submissions/
   ada/
     top-interview-easy/
-      546/
+      66/
         solution.ts
         README.md
         meta.json
@@ -112,7 +112,7 @@ c, cc, cpp, cs, dart, go, java, js, kt, php, py, rb, rs, scala, sql, swift, ts
 - LeetCode 75
 - Top Interview 150
 
-카탈로그에서 각 목록의 `items[].submissionKey`가 실제 제출 폴더명입니다. LeetCode 75와 Top Interview 150은 LeetCode 문제 번호를 사용하고, Top Interview Questions Easy는 Explore URL 마지막 숫자를 사용합니다.
+카탈로그에서 각 목록의 `items[].submissionKey`가 실제 제출 폴더명입니다. 모든 목록은 LeetCode 문제 번호를 사용하며, Top Interview Questions Easy도 Explore URL 마지막 숫자가 아니라 문제 고유 LeetCode 번호를 사용합니다.
 
 카탈로그 재생성은 운영자가 문제 목록 자체를 다시 만들 때만 사용합니다. 일반 참가자는 이 명령을 실행할 필요가 없습니다.
 

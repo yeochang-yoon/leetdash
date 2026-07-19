@@ -18,14 +18,14 @@ submissions/
 
 | 소스 | `sourceKey` | `submissionKey` 기준 |
 | --- | --- | --- |
-| Top Interview Questions Easy | `top-interview-easy` | Explore URL의 마지막 숫자 |
+| Top Interview Questions Easy | `top-interview-easy` | 문제 고유 LeetCode 번호 |
 | LeetCode 75 | `leetcode-75` | 문제 제목 앞 LeetCode 번호 |
 | Top Interview 150 | `top-interview-150` | 문제 제목 앞 LeetCode 번호 |
 
 예시:
 
 ```text
-submissions/ada/top-interview-easy/546/solution.ts
+submissions/ada/top-interview-easy/66/solution.ts
 submissions/ada/leetcode-75/1768/solution.ts
 submissions/ada/top-interview-150/88/solution.py
 ```

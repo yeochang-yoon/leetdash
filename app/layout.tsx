@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { BarChart3, GitFork, Users } from "lucide-react";
+import { BarChart3, GitFork, UserRoundCheck, Users } from "lucide-react";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -25,6 +25,10 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
             <Link href="/admin">
               <Users size={16} aria-hidden="true" />
               참가자
+            </Link>
+            <Link href="/myprofile">
+              <UserRoundCheck size={16} aria-hidden="true" />
+              내상태
             </Link>
             <a href="https://github.com" target="_blank" rel="noreferrer">
               <GitFork size={16} aria-hidden="true" />

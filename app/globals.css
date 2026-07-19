@@ -39,7 +39,8 @@ a {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -92,6 +93,7 @@ input {
   font-size: 14px;
   gap: 7px;
   padding: 9px 10px;
+  white-space: nowrap;
 }
 
 .top-nav a:hover {
@@ -258,6 +260,33 @@ button.primary:hover {
 .panel-icon {
   color: var(--accent);
   flex: 0 0 auto;
+}
+
+.viewer-control {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
+.viewer-control select {
+  appearance: none;
+  background:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%) right 14px center / 6px 6px no-repeat,
+    linear-gradient(135deg, var(--muted) 50%, transparent 50%) right 10px center / 6px 6px no-repeat,
+    var(--surface);
+  border: 1px solid var(--strong-border);
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 680;
+  min-height: 38px;
+  min-width: 180px;
+  padding: 8px 32px 8px 11px;
+}
+
+.viewer-control select:focus {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent-soft);
 }
 
 .recent-submission-list {
@@ -488,6 +517,14 @@ tr:last-child td {
   overflow: hidden;
 }
 
+.my-profile-picker {
+  padding: 18px;
+}
+
+.my-profile-picker .viewer-control {
+  max-width: 420px;
+}
+
 .activity-user-list {
   display: flex;
   flex-direction: column;
@@ -587,6 +624,16 @@ tr:last-child td {
   .list-grid,
   .form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .panel-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .viewer-control,
+  .viewer-control select {
+    width: 100%;
   }
 
   .activity-user-row {

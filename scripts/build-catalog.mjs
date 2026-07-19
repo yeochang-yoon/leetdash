@@ -6,69 +6,6 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const inputPath = process.argv[2] ?? "/private/tmp/honood-readme.md";
 const markdown = readFileSync(inputPath, "utf8");
 
-const topInterviewEasySubmissionKeysBySlug = new Map(
-  Object.entries({
-    "remove-duplicates-from-sorted-array": "727",
-    "best-time-to-buy-and-sell-stock-ii": "564",
-    "rotate-array": "646",
-    "contains-duplicate": "578",
-    "single-number": "549",
-    "intersection-of-two-arrays-ii": "674",
-    "plus-one": "559",
-    "move-zeroes": "567",
-    "two-sum": "546",
-    "valid-sudoku": "769",
-    "rotate-image": "770",
-    "reverse-string": "879",
-    "reverse-integer": "880",
-    "first-unique-character-in-a-string": "881",
-    "valid-anagram": "882",
-    "valid-palindrome": "883",
-    "string-to-integer-atoi": "884",
-    "find-the-index-of-the-first-occurrence-in-a-string": "885",
-    "count-and-say": "886",
-    "longest-common-prefix": "887",
-    "delete-node-in-a-linked-list": "553",
-    "remove-nth-node-from-end-of-list": "603",
-    "reverse-linked-list": "560",
-    "merge-two-sorted-lists": "771",
-    "palindrome-linked-list": "772",
-    "linked-list-cycle": "773",
-    "maximum-depth-of-binary-tree": "555",
-    "validate-binary-search-tree": "625",
-    "symmetric-tree": "627",
-    "binary-tree-level-order-traversal": "628",
-    "convert-sorted-array-to-binary-search-tree": "631",
-    "merge-sorted-array": "587",
-    "first-bad-version": "774",
-    "climbing-stairs": "569",
-    "best-time-to-buy-and-sell-stock": "572",
-    "maximum-subarray": "566",
-    "house-robber": "576",
-    "shuffle-an-array": "670",
-    "min-stack": "562",
-    "fizz-buzz": "743",
-    "count-primes": "744",
-    "power-of-three": "745",
-    "roman-to-integer": "878",
-    "number-of-1-bits": "565",
-    "hamming-distance": "762",
-    "reverse-bits": "648",
-    "pascals-triangle": "601",
-    "valid-parentheses": "721",
-    "missing-number": "722",
-  }),
-);
-
-function getTopInterviewEasySubmissionKey(slug) {
-  const submissionKey = topInterviewEasySubmissionKeysBySlug.get(slug);
-  if (!submissionKey) {
-    throw new Error(`Missing Top Interview Easy submissionKey for slug: ${slug}`);
-  }
-
-  return submissionKey;
-}
-
 function sliceSection(startHeading, endHeading) {
   const start = markdown.indexOf(startHeading);
   if (start === -1) {
@@ -191,11 +128,11 @@ const topInterviewEasy = {
     title,
     difficulty,
   })),
-  items: topInterviewEasyRows.map(([section, , slug], index) => ({
+  items: topInterviewEasyRows.map(([section, leetcodeId, slug], index) => ({
     slug,
     order: index + 1,
     section,
-    submissionKey: getTopInterviewEasySubmissionKey(slug),
+    submissionKey: String(leetcodeId),
   })),
 };
 
