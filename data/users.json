@@ -5,6 +5,12 @@
 		  "displayName": "강명환",
 		  "githubUsername": "whoisyourbias",
 		  "active": true
+	  },
+	  	  {
+		  "id": "sayo",
+		  "displayName": "현지희",
+		  "githubUsername": "devJeehee",
+		  "active": true
 	  }
   ]
 }
