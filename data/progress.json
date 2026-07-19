@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-19T08:29:45.742Z",
+  "generatedAt": "2026-07-19T09:46:21.515Z",
   "users": [
     {
       "id": "mygo",
@@ -18,7 +18,20 @@
           "language": "JAVA",
           "solutionPath": "submissions/whoisyourbias/top-interview-easy/727/Solution.java",
           "source": "solution-file",
-          "generatedAt": "2026-07-19T08:29:45.742Z"
+          "generatedAt": "2026-07-19T09:46:21.515Z"
+        }
+      ],
+      "activity": [
+        {
+          "date": "2026-07-19",
+          "solved": 1,
+          "submissions": [
+            {
+              "problemSlug": "remove-duplicates-from-sorted-array",
+              "sourceKey": "top-interview-easy",
+              "submissionKey": "727"
+            }
+          ]
         }
       ]
     }
