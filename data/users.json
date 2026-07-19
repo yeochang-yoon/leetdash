@@ -1,10 +1,16 @@
 {
-  "users": [
-	  {
-		  "id": "mygo",
-		  "displayName": "강명환",
-		  "githubUsername": "whoisyourbias",
-		  "active": true
-	  }
-  ]
+    "users": [
+        {
+            "id": "mygo",
+            "displayName": "강명환",
+            "githubUsername": "whoisyourbias",
+            "active": true
+        },
+        {
+            "id": "yeochang",
+            "displayName": "윤여창",
+            "githubUsername": "yeochang-yoon",
+            "active": true
+        }
+    ]
 }
