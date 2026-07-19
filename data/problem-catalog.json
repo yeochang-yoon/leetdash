@@ -316,295 +316,295 @@
           "slug": "remove-duplicates-from-sorted-array",
           "order": 1,
           "section": "Array",
-          "submissionKey": "727"
+          "submissionKey": "26"
         },
         {
           "slug": "best-time-to-buy-and-sell-stock-ii",
           "order": 2,
           "section": "Array",
-          "submissionKey": "564"
+          "submissionKey": "122"
         },
         {
           "slug": "rotate-array",
           "order": 3,
           "section": "Array",
-          "submissionKey": "646"
+          "submissionKey": "189"
         },
         {
           "slug": "contains-duplicate",
           "order": 4,
           "section": "Array",
-          "submissionKey": "578"
+          "submissionKey": "217"
         },
         {
           "slug": "single-number",
           "order": 5,
           "section": "Array",
-          "submissionKey": "549"
+          "submissionKey": "136"
         },
         {
           "slug": "intersection-of-two-arrays-ii",
           "order": 6,
           "section": "Array",
-          "submissionKey": "674"
+          "submissionKey": "350"
         },
         {
           "slug": "plus-one",
           "order": 7,
           "section": "Array",
-          "submissionKey": "559"
+          "submissionKey": "66"
         },
         {
           "slug": "move-zeroes",
           "order": 8,
           "section": "Array",
-          "submissionKey": "567"
+          "submissionKey": "283"
         },
         {
           "slug": "two-sum",
           "order": 9,
           "section": "Array",
-          "submissionKey": "546"
+          "submissionKey": "1"
         },
         {
           "slug": "valid-sudoku",
           "order": 10,
           "section": "Array",
-          "submissionKey": "769"
+          "submissionKey": "36"
         },
         {
           "slug": "rotate-image",
           "order": 11,
           "section": "Array",
-          "submissionKey": "770"
+          "submissionKey": "48"
         },
         {
           "slug": "reverse-string",
           "order": 12,
           "section": "Strings",
-          "submissionKey": "879"
+          "submissionKey": "344"
         },
         {
           "slug": "reverse-integer",
           "order": 13,
           "section": "Strings",
-          "submissionKey": "880"
+          "submissionKey": "7"
         },
         {
           "slug": "first-unique-character-in-a-string",
           "order": 14,
           "section": "Strings",
-          "submissionKey": "881"
+          "submissionKey": "387"
         },
         {
           "slug": "valid-anagram",
           "order": 15,
           "section": "Strings",
-          "submissionKey": "882"
+          "submissionKey": "242"
         },
         {
           "slug": "valid-palindrome",
           "order": 16,
           "section": "Strings",
-          "submissionKey": "883"
+          "submissionKey": "125"
         },
         {
           "slug": "string-to-integer-atoi",
           "order": 17,
           "section": "Strings",
-          "submissionKey": "884"
+          "submissionKey": "8"
         },
         {
           "slug": "find-the-index-of-the-first-occurrence-in-a-string",
           "order": 18,
           "section": "Strings",
-          "submissionKey": "885"
+          "submissionKey": "28"
         },
         {
           "slug": "count-and-say",
           "order": 19,
           "section": "Strings",
-          "submissionKey": "886"
+          "submissionKey": "38"
         },
         {
           "slug": "longest-common-prefix",
           "order": 20,
           "section": "Strings",
-          "submissionKey": "887"
+          "submissionKey": "14"
         },
         {
           "slug": "delete-node-in-a-linked-list",
           "order": 21,
           "section": "Linked List",
-          "submissionKey": "553"
+          "submissionKey": "237"
         },
         {
           "slug": "remove-nth-node-from-end-of-list",
           "order": 22,
           "section": "Linked List",
-          "submissionKey": "603"
+          "submissionKey": "19"
         },
         {
           "slug": "reverse-linked-list",
           "order": 23,
           "section": "Linked List",
-          "submissionKey": "560"
+          "submissionKey": "206"
         },
         {
           "slug": "merge-two-sorted-lists",
           "order": 24,
           "section": "Linked List",
-          "submissionKey": "771"
+          "submissionKey": "21"
         },
         {
           "slug": "palindrome-linked-list",
           "order": 25,
           "section": "Linked List",
-          "submissionKey": "772"
+          "submissionKey": "234"
         },
         {
           "slug": "linked-list-cycle",
           "order": 26,
           "section": "Linked List",
-          "submissionKey": "773"
+          "submissionKey": "141"
         },
         {
           "slug": "maximum-depth-of-binary-tree",
           "order": 27,
           "section": "Trees",
-          "submissionKey": "555"
+          "submissionKey": "104"
         },
         {
           "slug": "validate-binary-search-tree",
           "order": 28,
           "section": "Trees",
-          "submissionKey": "625"
+          "submissionKey": "98"
         },
         {
           "slug": "symmetric-tree",
           "order": 29,
           "section": "Trees",
-          "submissionKey": "627"
+          "submissionKey": "101"
         },
         {
           "slug": "binary-tree-level-order-traversal",
           "order": 30,
           "section": "Trees",
-          "submissionKey": "628"
+          "submissionKey": "102"
         },
         {
           "slug": "convert-sorted-array-to-binary-search-tree",
           "order": 31,
           "section": "Trees",
-          "submissionKey": "631"
+          "submissionKey": "108"
         },
         {
           "slug": "merge-sorted-array",
           "order": 32,
           "section": "Sorting and Searching",
-          "submissionKey": "587"
+          "submissionKey": "88"
         },
         {
           "slug": "first-bad-version",
           "order": 33,
           "section": "Sorting and Searching",
-          "submissionKey": "774"
+          "submissionKey": "278"
         },
         {
           "slug": "climbing-stairs",
           "order": 34,
           "section": "Dynamic Programming",
-          "submissionKey": "569"
+          "submissionKey": "70"
         },
         {
           "slug": "best-time-to-buy-and-sell-stock",
           "order": 35,
           "section": "Dynamic Programming",
-          "submissionKey": "572"
+          "submissionKey": "121"
         },
         {
           "slug": "maximum-subarray",
           "order": 36,
           "section": "Dynamic Programming",
-          "submissionKey": "566"
+          "submissionKey": "53"
         },
         {
           "slug": "house-robber",
           "order": 37,
           "section": "Dynamic Programming",
-          "submissionKey": "576"
+          "submissionKey": "198"
         },
         {
           "slug": "shuffle-an-array",
           "order": 38,
           "section": "Design",
-          "submissionKey": "670"
+          "submissionKey": "384"
         },
         {
           "slug": "min-stack",
           "order": 39,
           "section": "Design",
-          "submissionKey": "562"
+          "submissionKey": "155"
         },
         {
           "slug": "fizz-buzz",
           "order": 40,
           "section": "Math",
-          "submissionKey": "743"
+          "submissionKey": "412"
         },
         {
           "slug": "count-primes",
           "order": 41,
           "section": "Math",
-          "submissionKey": "744"
+          "submissionKey": "204"
         },
         {
           "slug": "power-of-three",
           "order": 42,
           "section": "Math",
-          "submissionKey": "745"
+          "submissionKey": "326"
         },
         {
           "slug": "roman-to-integer",
           "order": 43,
           "section": "Math",
-          "submissionKey": "878"
+          "submissionKey": "13"
         },
         {
           "slug": "number-of-1-bits",
           "order": 44,
           "section": "Others",
-          "submissionKey": "565"
+          "submissionKey": "191"
         },
         {
           "slug": "hamming-distance",
           "order": 45,
           "section": "Others",
-          "submissionKey": "762"
+          "submissionKey": "461"
         },
         {
           "slug": "reverse-bits",
           "order": 46,
           "section": "Others",
-          "submissionKey": "648"
+          "submissionKey": "190"
         },
         {
           "slug": "pascals-triangle",
           "order": 47,
           "section": "Others",
-          "submissionKey": "601"
+          "submissionKey": "118"
         },
         {
           "slug": "valid-parentheses",
           "order": 48,
           "section": "Others",
-          "submissionKey": "721"
+          "submissionKey": "20"
         },
         {
           "slug": "missing-number",
           "order": 49,
           "section": "Others",
-          "submissionKey": "722"
+          "submissionKey": "268"
         }
       ]
     },

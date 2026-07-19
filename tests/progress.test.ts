@@ -8,7 +8,7 @@ function submission(overrides: Partial<Submission>): Submission {
     userId: "ada",
     problemSlug: "two-sum",
     sourceKey: "top-interview-easy",
-    submissionKey: "546",
+    submissionKey: "1",
     status: SubmissionStatus.SOLVED,
     source: "solution-file",
     generatedAt: "2024-01-01T00:00:00.000Z",
@@ -27,13 +27,13 @@ describe("dashboard progress helpers", () => {
           submission({
             problemSlug: "two-sum",
             sourceKey: "top-interview-easy",
-            submissionKey: "546",
+            submissionKey: "1",
             submittedAt: "2024-01-06T00:00:00.000Z",
           }),
           submission({
             problemSlug: "valid-parentheses",
             sourceKey: "top-interview-easy",
-            submissionKey: "721",
+            submissionKey: "20",
             submittedAt: "2024-01-02T00:00:00.000Z",
           }),
           submission({
@@ -71,7 +71,7 @@ describe("dashboard progress helpers", () => {
             userId: "grace",
             problemSlug: "search-insert-position",
             sourceKey: "top-interview-easy",
-            submissionKey: "697",
+            submissionKey: "35",
             submittedAt: "2024-01-03T00:00:00.000Z",
           }),
           submission({
@@ -79,7 +79,7 @@ describe("dashboard progress helpers", () => {
             userId: "grace",
             problemSlug: "plus-one",
             sourceKey: "top-interview-easy",
-            submissionKey: "559",
+            submissionKey: "66",
             submittedAt: "2024-01-01T00:00:00.000Z",
           }),
         ],

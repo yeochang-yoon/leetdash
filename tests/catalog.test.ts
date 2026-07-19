@@ -30,12 +30,17 @@ describe("problem catalog", () => {
     }
   });
 
-  it("uses source-specific submission keys instead of canonical slugs", () => {
+  it("uses LeetCode problem numbers as Top Interview Easy submission keys", () => {
     const topInterviewEasy = catalog.lists.find((list) => list.key === "top-interview-easy");
     const leetcode75 = catalog.lists.find((list) => list.key === "leetcode-75");
     const topInterview150 = catalog.lists.find((list) => list.key === "top-interview-150");
 
-    expect(topInterviewEasy?.items.find((item) => item.slug === "two-sum")?.submissionKey).toBe("546");
+    expect(topInterviewEasy?.items.find((item) => item.slug === "plus-one")?.submissionKey).toBe("66");
+    expect(topInterviewEasy?.items.find((item) => item.slug === "two-sum")?.submissionKey).toBe("1");
+    for (const item of topInterviewEasy?.items ?? []) {
+      expect(item.submissionKey).toBe(String(problemBySlug.get(item.slug)?.leetcodeId));
+    }
+
     expect(leetcode75?.items.find((item) => item.slug === "merge-strings-alternately")?.submissionKey).toBe("1768");
     expect(topInterview150?.items.find((item) => item.slug === "merge-sorted-array")?.submissionKey).toBe("88");
 

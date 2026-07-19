@@ -18,6 +18,22 @@ export function formatDateTime(value: Date | string | null | undefined) {
   }).format(date);
 }
 
+export function formatSnapshotDateTime(value: Date | string | null | undefined) {
+  if (!value) {
+    return "없음";
+  }
+
+  const date = typeof value === "string" ? new Date(value) : value;
+  return new Intl.DateTimeFormat("ko-KR", {
+    timeZone: "Asia/Seoul",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(date);
+}
+
 export function formatDate(value: Date | string | null | undefined) {
   if (!value) {
     return "-";
