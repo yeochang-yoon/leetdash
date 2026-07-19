@@ -1,0 +1,13 @@
+# Require owner review for repository operations and application code.
+# Participant submissions are intentionally not listed, so submission-only PRs
+# can merge after required status checks pass.
+/.github/ @whoisyourbias
+/app/ @whoisyourbias
+/lib/ @whoisyourbias
+/scripts/ @whoisyourbias
+/data/ @whoisyourbias
+/package.json @whoisyourbias
+/package-lock.json @whoisyourbias
+/next.config.mjs @whoisyourbias
+/tsconfig*.json @whoisyourbias
+/vitest.config.ts @whoisyourbias
