@@ -19,7 +19,8 @@
 1. 참가자가 이 레포에서 본인 작업 브랜치를 만듭니다.
 2. 풀이를 `submissions/<githubUsername>/<sourceKey>/<submissionKey>/` 아래에 추가합니다.
 3. PR을 만들고 `master`에 머지합니다.
-4. Netlify가 `npm run build`를 실행해 `data/progress.json`을 다시 만들고 대시보드를 배포합니다.
+4. GitHub Actions가 검증과 정적 빌드를 실행합니다.
+5. `master`에 머지된 경우 GitHub Pages에 대시보드를 배포합니다.
 
 공개 페이지에는 `master`에 머지된 제출만 반영됩니다. 개인 브랜치는 직접 스캔하지 않습니다.
 
@@ -136,19 +137,23 @@ npm run progress:build
 
 ## 배포
 
-이 앱은 빌드 시점에 체크인된 파일을 읽어 진행 데이터를 만드는 Next.js 사이트입니다. Netlify 설정은 아래와 같이 둡니다.
+이 앱은 빌드 시점에 체크인된 파일을 읽어 진행 데이터를 만들고, Next.js static export 결과물을 GitHub Pages에 배포합니다.
 
-- 빌드 명령: `npm run build`
 - 운영 브랜치: `master`
+- 배포 workflow: `.github/workflows/deploy-pages.yml`
+- 배포 URL: `https://whoisyourbias.github.io/leetdash/`
 
-GitHub 원본 링크 생성을 위한 선택 환경 변수:
+GitHub 저장소 설정에서 Pages source를 `GitHub Actions`로 설정합니다.
+
+workflow는 아래 환경 변수로 Pages 경로와 GitHub 원본 링크를 고정합니다.
 
 ```bash
 SOURCE_REPOSITORY_URL=https://github.com/<owner>/<repo>
 BRANCH=master
+NEXT_PUBLIC_BASE_PATH=/leetdash
 ```
 
-Netlify는 보통 레포/브랜치 환경 변수를 자동으로 제공합니다. 자동 제공되지 않으면 위 값을 설정해야 풀이 링크가 GitHub 파일 URL로 연결됩니다.
+PR에서는 `typecheck`, `test`, `build`까지만 실행합니다. `master` push에서는 같은 검증을 통과한 뒤 `out/`을 GitHub Pages artifact로 업로드하고 배포합니다.
 
 ## 라우트
 

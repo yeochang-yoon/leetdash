@@ -32,7 +32,7 @@ export default async function AdminPage() {
         <div className="list-card">
           <Users size={18} aria-hidden="true" />
           <h3>Rebuild page</h3>
-          <p className="panel-subtitle">Netlify rebuilds the static dashboard after master changes.</p>
+          <p className="panel-subtitle">GitHub Actions rebuilds and deploys the static dashboard after master changes.</p>
         </div>
       </section>
 

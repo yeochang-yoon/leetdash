@@ -9,6 +9,10 @@ export const dynamicParams = false;
 
 export async function generateStaticParams() {
   const users = await listStaticUsers();
+  if (users.length === 0) {
+    return [{ userId: "__placeholder__" }];
+  }
+
   return users.map((user) => ({ userId: user.id }));
 }
 
