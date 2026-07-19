@@ -20,6 +20,7 @@ describe("build-progress", () => {
     await mkdir(path.join(repo, "submissions", "ada", "leetcode-75", "1"), { recursive: true });
     await mkdir(path.join(repo, "submissions", "ada", "leetcode-75", "1768"), { recursive: true });
     await mkdir(path.join(repo, "submissions", "ada", "top-interview-150", "88"), { recursive: true });
+    await mkdir(path.join(repo, "submissions", "ada", "top-interview-easy", "721"), { recursive: true });
     await mkdir(path.join(repo, "submissions", "ada", "solutions", "20"), { recursive: true });
     await mkdir(path.join(repo, "submissions", "ada", "top-interview-easy", "two-sum"), { recursive: true });
 
@@ -36,6 +37,12 @@ describe("build-progress", () => {
           leetcodeId: 1768,
           slug: "merge-strings-alternately",
           title: "Merge Strings Alternately",
+          difficulty: "easy",
+        },
+        {
+          leetcodeId: 20,
+          slug: "valid-parentheses",
+          title: "Valid Parentheses",
           difficulty: "easy",
         },
       ],
@@ -78,6 +85,7 @@ describe("build-progress", () => {
       language: "TypeScript",
       notes: "Needs another pass.",
     });
+    await writeFile(path.join(repo, "submissions", "ada", "top-interview-easy", "721", "Solution.java"), "// solved\n");
     await writeFile(path.join(repo, "submissions", "ada", "top-interview-150", "88", "solution.py"), "# solved\n");
 
     await execFileAsync(process.execPath, [scriptPath], {
@@ -123,9 +131,16 @@ describe("build-progress", () => {
         githubUrl: "https://github.com/example/progress/blob/master/submissions/ada/top-interview-easy/546/solution.ts",
         source: "solution-file",
       }),
+      expect.objectContaining({
+        problemSlug: "valid-parentheses",
+        status: "SOLVED",
+        sourceKey: "top-interview-easy",
+        submissionKey: "721",
+        language: "JAVA",
+        solutionPath: "submissions/ada/top-interview-easy/721/Solution.java",
+        githubUrl: "https://github.com/example/progress/blob/master/submissions/ada/top-interview-easy/721/Solution.java",
+        source: "solution-file",
+      }),
     ]);
-    expect(progress.users[0].submissions.map((submission: { problemSlug: string }) => submission.problemSlug)).not.toContain(
-      "valid-parentheses",
-    );
   });
 });

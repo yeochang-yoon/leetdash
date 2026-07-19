@@ -170,12 +170,13 @@ function findSolutionPath(paths, submissionRoot) {
     }
 
     const filename = relativePath.slice(solutionPrefix.length);
-    if (filename.includes("/") || filename === "meta.json" || filename === "README.md") {
+    const normalizedFilename = filename.toLowerCase();
+    if (filename.includes("/") || normalizedFilename === "meta.json" || normalizedFilename === "readme.md") {
       continue;
     }
 
     const [basename, extension] = filename.split(".");
-    if (basename === "solution" && extension && solutionExtensions.has(extension.toLowerCase())) {
+    if (basename.toLowerCase() === "solution" && extension && solutionExtensions.has(extension.toLowerCase())) {
       return relativePath;
     }
   }
