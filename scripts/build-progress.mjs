@@ -30,6 +30,14 @@ const usersPath = path.join(repoRoot, "data", "users.json");
 const outputPath = path.join(repoRoot, "data", "progress.json");
 const ignoredDirectories = new Set([".git", ".next", "node_modules", "out"]);
 const execFileAsync = promisify(execFile);
+const gitAddedAtCache = new Map();
+let warnedAboutGitActivity = false;
+const seoulDateFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: "Asia/Seoul",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
 
 function toPosixPath(value) {
   return value.split(path.sep).join("/");
@@ -77,6 +85,89 @@ function blobUrl(relativePath) {
 
   const branch = process.env.BRANCH || process.env.HEAD || process.env.GITHUB_REF_NAME || "master";
   return `${repositoryUrl}/blob/${encodeURIComponent(branch)}/${encodeBlobPath(relativePath)}`;
+}
+
+function warnGitActivity(message) {
+  if (warnedAboutGitActivity) {
+    return;
+  }
+
+  warnedAboutGitActivity = true;
+  console.warn(message);
+}
+
+function toSeoulDateKey(value) {
+  const parts = Object.fromEntries(
+    seoulDateFormatter
+      .formatToParts(new Date(value))
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value]),
+  );
+
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+async function getGitAddedAt(relativePath) {
+  if (gitAddedAtCache.has(relativePath)) {
+    return gitAddedAtCache.get(relativePath);
+  }
+
+  try {
+    const { stdout } = await execFileAsync(
+      "git",
+      ["log", "--diff-filter=A", "--format=%cI", "--", relativePath],
+      { cwd: repoRoot, maxBuffer: 1024 * 1024 },
+    );
+    const timestamps = stdout.trim().split(/\r?\n/).filter(Boolean);
+    const addedAt = timestamps.at(-1);
+    gitAddedAtCache.set(relativePath, addedAt);
+    return addedAt;
+  } catch {
+    warnGitActivity("Warning: unable to read Git history; activity calendar dates will be incomplete.");
+    gitAddedAtCache.set(relativePath, undefined);
+    return undefined;
+  }
+}
+
+function getActivityArtifactPath({ user, submission, allPaths }) {
+  if (submission.solutionPath) {
+    return submission.solutionPath;
+  }
+
+  const metaPath = `${user.submissionsPath}/${submission.sourceKey}/${submission.submissionKey}/meta.json`;
+  return allPaths.has(metaPath) ? metaPath : undefined;
+}
+
+async function buildUserActivity({ user, submissions, allPaths }) {
+  const days = new Map();
+
+  for (const submission of submissions) {
+    if (submission.status !== "SOLVED") {
+      continue;
+    }
+
+    const artifactPath = getActivityArtifactPath({ user, submission, allPaths });
+    if (!artifactPath) {
+      continue;
+    }
+
+    const addedAt = await getGitAddedAt(artifactPath);
+    if (!addedAt) {
+      continue;
+    }
+
+    const date = toSeoulDateKey(addedAt);
+    const day = days.get(date) ?? { date, solved: 0, submissions: [] };
+    day.solved += 1;
+    day.submissions.push({
+      problemSlug: submission.problemSlug,
+      sourceKey: submission.sourceKey,
+      submissionKey: submission.submissionKey,
+    });
+    days.set(date, day);
+  }
+
+  return [...days.values()].sort((left, right) => left.date.localeCompare(right.date));
 }
 
 async function readJson(filePath) {
@@ -351,9 +442,11 @@ async function buildProgress() {
 
   const usersWithSubmissions = [];
   for (const user of users) {
+    const submissions = await collectUserSubmissions({ user, submissionTargets, allPaths, generatedAt });
     usersWithSubmissions.push({
       ...user,
-      submissions: await collectUserSubmissions({ user, submissionTargets, allPaths, generatedAt }),
+      submissions,
+      activity: await buildUserActivity({ user, submissions, allPaths }),
     });
   }
 

@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ExternalLink } from "lucide-react";
+import { ActivityCalendar } from "@/app/components/activity-calendar";
 import { getProblemLeetCodeUrl } from "@/lib/catalog";
-import { difficultyLabel, formatDate, formatPercent, statusLabel } from "@/lib/format";
+import { difficultyLabel, formatDate, formatDateKey, formatPercent, statusLabel } from "@/lib/format";
 import { getGithubProfileUrl } from "@/lib/github";
 import { formatCatalogListTitle, formatCatalogSection, formatProblemTitle } from "@/lib/i18n";
 import { getUserDetail, listStaticUsers } from "@/lib/progress";
@@ -25,7 +26,7 @@ export default async function UserDetailPage({ params }: { params: Promise<{ use
     notFound();
   }
 
-  const { user, lists } = detail;
+  const { user, lists, activityCalendar } = detail;
 
   return (
     <div className="page">
@@ -58,6 +59,24 @@ export default async function UserDetailPage({ params }: { params: Promise<{ use
             </div>
           </Link>
         ))}
+      </section>
+
+      <section className="panel activity-panel" aria-labelledby="user-activity-title">
+        <div className="panel-header">
+          <div>
+            <h2 id="user-activity-title">활동 달력</h2>
+            <p className="panel-subtitle">최근 90일 동안 master에 추가된 풀이입니다</p>
+          </div>
+          <div className="activity-summary compact">
+            <span>
+              최근 90일 <strong>{activityCalendar.totalSolved}</strong>개
+            </span>
+            <span>최근 활동 {formatDateKey(activityCalendar.lastActiveDate)}</span>
+          </div>
+        </div>
+        <div className="activity-detail-calendar">
+          <ActivityCalendar calendar={activityCalendar} label={`${user.displayName} 최근 90일 활동`} />
+        </div>
       </section>
 
       {lists.map((list) => (

@@ -43,6 +43,17 @@ input {
   font: inherit;
 }
 
+.sr-only {
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  padding: 0;
+  position: absolute;
+  width: 1px;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
 .shell-header {
   align-items: center;
   background: rgba(255, 255, 255, 0.92);
@@ -473,6 +484,89 @@ tr:last-child td {
   text-transform: uppercase;
 }
 
+.activity-panel {
+  overflow: hidden;
+}
+
+.activity-user-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.activity-user-row {
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  gap: 16px;
+  grid-template-columns: minmax(190px, 1.1fr) minmax(280px, 4fr) minmax(140px, auto);
+  padding: 14px 18px;
+}
+
+.activity-user-row:last-child {
+  border-bottom: 0;
+}
+
+.activity-calendar {
+  --activity-cell-size: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-width: 0;
+}
+
+.activity-day {
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  flex: 0 0 var(--activity-cell-size);
+  height: var(--activity-cell-size);
+  width: var(--activity-cell-size);
+}
+
+.activity-level-0 {
+  background: var(--surface-muted);
+}
+
+.activity-level-1 {
+  background: var(--accent-soft);
+  border-color: #b5e9df;
+}
+
+.activity-level-2 {
+  background: #8dded2;
+  border-color: #69cfc2;
+}
+
+.activity-level-3 {
+  background: #35a79a;
+  border-color: #278c81;
+}
+
+.activity-level-4 {
+  background: var(--accent);
+  border-color: var(--accent-strong);
+}
+
+.activity-summary {
+  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+  gap: 4px;
+  line-height: 1.35;
+}
+
+.activity-summary strong {
+  color: var(--text);
+}
+
+.activity-summary.compact {
+  align-items: flex-end;
+}
+
+.activity-detail-calendar {
+  padding: 18px;
+}
+
 @media (max-width: 900px) {
   .shell-header,
   .page-header {
@@ -493,6 +587,15 @@ tr:last-child td {
   .list-grid,
   .form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .activity-user-row {
+    align-items: flex-start;
+    grid-template-columns: 1fr;
+  }
+
+  .activity-summary.compact {
+    align-items: flex-start;
   }
 
   .recent-submission-item {

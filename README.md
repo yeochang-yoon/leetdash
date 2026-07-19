@@ -137,6 +137,8 @@ npm run progress:build
 
 `npm run build`는 항상 `next build` 전에 진행 데이터 생성기를 실행합니다.
 
+진행 데이터 생성기는 Git 히스토리에서 각 풀이 파일의 최초 추가 커밋 날짜를 읽어 사용자별 활동 달력도 만듭니다. 풀이 파일이 없고 `meta.json`만 있는 완료 제출은 `meta.json`의 최초 추가 커밋 날짜를 사용합니다. 날짜는 Asia/Seoul 기준 일자로 묶이며, Git 히스토리를 읽을 수 없는 로컬 환경에서는 활동 달력이 비어 있을 수 있지만 빌드는 계속 진행됩니다.
+
 ## 배포
 
 이 앱은 빌드 시점에 체크인된 파일을 읽어 진행 데이터를 만들고, Next.js static export 결과물을 GitHub Pages에 배포합니다.
@@ -154,6 +156,8 @@ SOURCE_REPOSITORY_URL=https://github.com/<owner>/<repo>
 BRANCH=master
 NEXT_PUBLIC_BASE_PATH=/leetdash
 ```
+
+GitHub Actions checkout은 활동 달력 생성을 위해 `fetch-depth: 0`으로 전체 히스토리를 가져옵니다.
 
 PR에서는 `typecheck`, `test`, `build`까지만 실행합니다. `master` push에서는 같은 검증을 통과한 뒤 `out/`을 GitHub Pages artifact로 업로드하고 배포합니다. 여러 PR이 연속으로 머지되면 GitHub Pages 배포는 최신 `master` 기준으로 진행되며, 이전 배포 작업은 취소될 수 있습니다.
 

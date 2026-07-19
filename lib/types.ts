@@ -33,8 +33,21 @@ export type Submission = {
   generatedAt: string;
 };
 
+export type ActivitySubmission = {
+  problemSlug: string;
+  sourceKey: string;
+  submissionKey: string;
+};
+
+export type ActivityDay = {
+  date: string;
+  solved: number;
+  submissions: ActivitySubmission[];
+};
+
 export type ProgressUser = User & {
   submissions: Submission[];
+  activity: ActivityDay[];
 };
 
 export type ProgressData = {
