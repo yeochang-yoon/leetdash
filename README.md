@@ -24,6 +24,8 @@
 
 공개 페이지에는 `master`에 머지된 제출만 반영됩니다. 개인 브랜치는 직접 스캔하지 않습니다.
 
+PR은 `validate` 검증과 리뷰 조건을 통과하면 다른 PR의 GitHub Pages 배포 완료를 기다리지 않고 머지합니다. 저장소는 merge commit만 허용하며, squash merge와 rebase merge는 사용하지 않습니다. 충돌이 있는 PR만 개별적으로 `master`를 반영해 해결합니다.
+
 ## 참가자 등록
 
 참가자는 `data/users.json`에 등록합니다.
@@ -153,7 +155,7 @@ BRANCH=master
 NEXT_PUBLIC_BASE_PATH=/leetdash
 ```
 
-PR에서는 `typecheck`, `test`, `build`까지만 실행합니다. `master` push에서는 같은 검증을 통과한 뒤 `out/`을 GitHub Pages artifact로 업로드하고 배포합니다.
+PR에서는 `typecheck`, `test`, `build`까지만 실행합니다. `master` push에서는 같은 검증을 통과한 뒤 `out/`을 GitHub Pages artifact로 업로드하고 배포합니다. 여러 PR이 연속으로 머지되면 GitHub Pages 배포는 최신 `master` 기준으로 진행되며, 이전 배포 작업은 취소될 수 있습니다.
 
 ## 라우트
 
