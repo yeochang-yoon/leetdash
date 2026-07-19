@@ -1,4 +1,26 @@
 {
-  "generatedAt": "2026-07-19T07:56:18.301Z",
-  "users": []
+  "generatedAt": "2026-07-19T08:29:45.742Z",
+  "users": [
+    {
+      "id": "mygo",
+      "displayName": "강명환",
+      "githubUsername": "whoisyourbias",
+      "active": true,
+      "submissionsPath": "submissions/whoisyourbias",
+      "submissions": [
+        {
+          "id": "mygo:remove-duplicates-from-sorted-array",
+          "userId": "mygo",
+          "problemSlug": "remove-duplicates-from-sorted-array",
+          "sourceKey": "top-interview-easy",
+          "submissionKey": "727",
+          "status": "SOLVED",
+          "language": "JAVA",
+          "solutionPath": "submissions/whoisyourbias/top-interview-easy/727/Solution.java",
+          "source": "solution-file",
+          "generatedAt": "2026-07-19T08:29:45.742Z"
+        }
+      ]
+    }
+  ]
 }

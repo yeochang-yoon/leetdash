@@ -69,7 +69,7 @@ submissions/
         solution.py
 ```
 
-대시보드는 문제 폴더 안에서 지원되는 `solution.{ext}` 파일을 찾으면 해당 문제를 완료로 계산합니다.
+대시보드는 문제 폴더 안에서 지원되는 `solution.{ext}` 파일을 찾으면 해당 문제를 완료로 계산합니다. 파일명 basename인 `solution`은 대소문자를 구분하지 않으므로 `Solution.java`도 인식합니다.
 
 지원하는 풀이 파일 확장자:
 

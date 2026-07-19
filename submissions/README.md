@@ -12,6 +12,8 @@ submissions/
         meta.json
 ```
 
+`solution` 파일명은 대소문자를 구분하지 않으므로 `Solution.java`처럼 LeetCode 기본 파일명도 인식됩니다.
+
 소스별 폴더 규칙:
 
 | 소스 | `sourceKey` | `submissionKey` 기준 |
