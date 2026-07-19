@@ -1,4 +1,5 @@
 import { GitBranch, GitMerge, Users } from "lucide-react";
+import { getGithubProfileUrl } from "@/lib/github";
 import { getAdminUsers } from "@/lib/progress";
 
 export default async function AdminPage() {
@@ -61,7 +62,14 @@ export default async function AdminPage() {
                   <tr key={user.id}>
                     <td className="user-cell">
                       <div className="user-name">{user.displayName}</div>
-                      <span className="muted mono">@{user.githubUsername}</span>
+                      <a
+                        className="muted mono github-link"
+                        href={getGithubProfileUrl(user.githubUsername)}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        @{user.githubUsername}
+                      </a>
                     </td>
                     <td>
                       <span className={`badge ${user.active ? "success" : "neutral"}`}>

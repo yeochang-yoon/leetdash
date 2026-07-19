@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { Users } from "lucide-react";
+import { Clock3, Users } from "lucide-react";
 import { catalog } from "@/lib/catalog";
 import { formatDateTime, formatPercent } from "@/lib/format";
+import { getGithubProfileUrl } from "@/lib/github";
 import { formatCatalogListTitle } from "@/lib/i18n";
 import { getDashboardData } from "@/lib/progress";
 
@@ -72,6 +73,50 @@ export default async function DashboardPage() {
         </div>
       </section>
 
+      <section className="panel">
+        <div className="panel-header">
+          <div>
+            <h2>최근 풀이 제출</h2>
+            <p className="panel-subtitle">커밋 히스토리 기준으로 최근 완료된 풀이 5개까지 표시합니다</p>
+          </div>
+          <Clock3 size={18} aria-hidden="true" className="panel-icon" />
+        </div>
+        {data.recentSolvedSubmissions.length === 0 ? (
+          <div className="empty">아직 커밋 시간이 확인된 풀이 제출이 없습니다.</div>
+        ) : (
+          <div className="recent-submission-list">
+            {data.recentSolvedSubmissions.map((submission) => (
+              <div className="recent-submission-item" key={`${submission.userId}:${submission.problemSlug}`}>
+                <div>
+                  <Link className="user-name compact" href={`/users/${submission.userId}`}>
+                    {submission.displayName}
+                  </Link>
+                  <a
+                    className="muted mono github-link"
+                    href={getGithubProfileUrl(submission.githubUsername)}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    @{submission.githubUsername}
+                  </a>
+                </div>
+                <div>
+                  {submission.githubUrl ? (
+                    <a className="problem-title problem-link" href={submission.githubUrl} target="_blank" rel="noreferrer">
+                      {submission.problemTitle}
+                    </a>
+                  ) : (
+                    <span className="problem-title">{submission.problemTitle}</span>
+                  )}
+                  <div className="muted">{formatCatalogListTitle(submission.listTitle)}</div>
+                </div>
+                <div className="recent-submission-time">{formatDateTime(submission.submittedAt)}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
       <section className="list-grid" aria-label="목록 평균">
         {data.listAverages.map((list) => (
           <Link className="list-card" href={`/lists/${list.key}`} key={list.key}>
@@ -119,7 +164,14 @@ export default async function DashboardPage() {
                       <Link className="user-name" href={`/users/${user.id}`}>
                         {user.displayName}
                       </Link>
-                      <span className="muted mono">@{user.githubUsername}</span>
+                      <a
+                        className="muted mono github-link"
+                        href={getGithubProfileUrl(user.githubUsername)}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        @{user.githubUsername}
+                      </a>
                     </td>
                     {user.progress.map((progress) => (
                       <td key={progress.key}>
