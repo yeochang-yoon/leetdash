@@ -2,7 +2,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ExternalLink } from "lucide-react";
 import { getProblemLeetCodeUrl } from "@/lib/catalog";
-import { difficultyLabel, formatDate, formatDateTime, formatPercent, statusLabel } from "@/lib/format";
+import { difficultyLabel, formatDate, formatPercent, statusLabel } from "@/lib/format";
+import { formatCatalogListTitle, formatCatalogSection, formatProblemTitle } from "@/lib/i18n";
 import { getUserDetail, listStaticUsers } from "@/lib/progress";
 
 export const dynamicParams = false;
@@ -32,19 +33,18 @@ export default async function UserDetailPage({ params }: { params: Promise<{ use
           <p className="eyebrow">@{user.githubUsername}</p>
           <h1>{user.displayName}</h1>
           <p className="lede">
-            Submissions are read from <span className="mono">{user.submissionsPath}</span> on the master branch
-            snapshot.
+            제출물은 master 브랜치 스냅샷의 <span className="mono">{user.submissionsPath}</span>에서 읽습니다.
           </p>
         </div>
       </div>
 
-      <section className="list-grid" aria-label="User progress">
+      <section className="list-grid" aria-label="사용자 진행 현황">
         {lists.map((list) => (
           <Link className="list-card" href={`/lists/${list.key}`} key={list.key}>
-            <h3>{list.title}</h3>
+            <h3>{formatCatalogListTitle(list.title)}</h3>
             <div className="progress-meta">
               <span className="muted">
-                {list.progress.solved}/{list.progress.total} solved
+                {list.progress.solved}/{list.progress.total} 풀이 완료
               </span>
               <strong>{formatPercent(list.progress.percent)}</strong>
             </div>
@@ -59,9 +59,10 @@ export default async function UserDetailPage({ params }: { params: Promise<{ use
         <section className="panel" key={list.key}>
           <div className="panel-header">
             <div>
-              <h2>{list.title}</h2>
+              <h2>{formatCatalogListTitle(list.title)}</h2>
               <p className="panel-subtitle">
-                {list.progress.solved} solved, {list.progress.reviewing} reviewing, {list.progress.skipped} skipped
+                풀이 완료 {list.progress.solved}개, 검토 중 {list.progress.reviewing}개, 건너뜀{" "}
+                {list.progress.skipped}개
               </p>
             </div>
           </div>
@@ -70,12 +71,12 @@ export default async function UserDetailPage({ params }: { params: Promise<{ use
               <thead>
                 <tr>
                   <th>#</th>
-                  <th>Problem</th>
-                  <th>Difficulty</th>
-                  <th>Status</th>
-                  <th>Language</th>
-                  <th>Solved at</th>
-                  <th>Links</th>
+                  <th>문제</th>
+                  <th>난이도</th>
+                  <th>상태</th>
+                  <th>언어</th>
+                  <th>풀이 일시</th>
+                  <th>링크</th>
                 </tr>
               </thead>
               <tbody>
@@ -83,8 +84,8 @@ export default async function UserDetailPage({ params }: { params: Promise<{ use
                   <tr key={`${list.key}-${item.slug}`}>
                     <td className="mono">{item.order}</td>
                     <td>
-                      <div className="problem-title">{item.problem.title}</div>
-                      <div className="muted mono">{item.section}</div>
+                      <div className="problem-title">{formatProblemTitle(item.problem.title)}</div>
+                      <div className="muted mono">{formatCatalogSection(item.section)}</div>
                     </td>
                     <td>
                       <span className="badge neutral">{difficultyLabel(item.problem.difficulty)}</span>
@@ -98,7 +99,7 @@ export default async function UserDetailPage({ params }: { params: Promise<{ use
                           {item.submission.notes ? <div className="muted">{item.submission.notes}</div> : null}
                         </>
                       ) : (
-                        <span className="badge neutral">not started</span>
+                        <span className="badge neutral">시작 전</span>
                       )}
                     </td>
                     <td className="mono">{item.submission?.language ?? "-"}</td>

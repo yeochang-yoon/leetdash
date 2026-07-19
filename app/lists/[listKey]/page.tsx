@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { catalog } from "@/lib/catalog";
 import { formatPercent } from "@/lib/format";
+import { formatCatalogListTitle } from "@/lib/i18n";
 import { getListDetail } from "@/lib/progress";
 
 export const dynamicParams = false;
@@ -18,17 +19,18 @@ export default async function ListDetailPage({ params }: { params: Promise<{ lis
   }
 
   const { list, users } = detail;
+  const displayTitle = formatCatalogListTitle(list.title);
 
   return (
     <div className="page">
       <div className="page-header">
         <div>
-          <p className="eyebrow">Problem list</p>
-          <h1>{list.title}</h1>
+          <p className="eyebrow">문제 목록</p>
+          <h1>{displayTitle}</h1>
           <p className="lede">
-            {list.items.length} ordered problems.{" "}
+            정렬된 문제 {list.items.length}개.{" "}
             <a className="problem-link" href={list.url} target="_blank" rel="noreferrer">
-              Open source list
+              원본 목록 열기
             </a>
           </p>
         </div>
@@ -37,22 +39,22 @@ export default async function ListDetailPage({ params }: { params: Promise<{ lis
       <section className="panel">
         <div className="panel-header">
           <div>
-            <h2>Ranking</h2>
-            <p className="panel-subtitle">Sorted by solved percentage</p>
+            <h2>순위</h2>
+            <p className="panel-subtitle">풀이율 기준으로 정렬했습니다</p>
           </div>
         </div>
         {users.length === 0 ? (
-          <div className="empty">No active users registered.</div>
+          <div className="empty">등록된 활성 사용자가 없습니다.</div>
         ) : (
           <div className="table-wrap">
             <table>
               <thead>
                 <tr>
-                  <th>Rank</th>
-                  <th>User</th>
-                  <th>Progress</th>
-                  <th>Reviewing</th>
-                  <th>Skipped</th>
+                  <th>순위</th>
+                  <th>사용자</th>
+                  <th>진행률</th>
+                  <th>검토 중</th>
+                  <th>건너뜀</th>
                 </tr>
               </thead>
               <tbody>

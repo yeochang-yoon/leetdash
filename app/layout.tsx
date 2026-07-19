@@ -4,27 +4,27 @@ import { BarChart3, GitFork, Users } from "lucide-react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "LeetCode Progress Radar",
-  description: "GitHub repository based LeetCode study progress dashboard",
+  title: "LeetCode 진행 레이더",
+  description: "GitHub 저장소 기반 LeetCode 스터디 진행 현황 대시보드",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
+    <html lang="ko">
       <body>
         <header className="shell-header">
           <Link className="brand" href="/">
             <BarChart3 size={22} aria-hidden="true" />
-            <span>LeetCode Progress Radar</span>
+            <span>LeetCode 진행 레이더</span>
           </Link>
-          <nav className="top-nav" aria-label="Primary navigation">
+          <nav className="top-nav" aria-label="주요 내비게이션">
             <Link href="/">
               <BarChart3 size={16} aria-hidden="true" />
-              Dashboard
+              대시보드
             </Link>
             <Link href="/admin">
               <Users size={16} aria-hidden="true" />
-              Participants
+              참가자
             </Link>
             <a href="https://github.com" target="_blank" rel="noreferrer">
               <GitFork size={16} aria-hidden="true" />

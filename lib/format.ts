@@ -6,11 +6,11 @@ export function formatPercent(value: number) {
 
 export function formatDateTime(value: Date | string | null | undefined) {
   if (!value) {
-    return "Never";
+    return "없음";
   }
 
   const date = typeof value === "string" ? new Date(value) : value;
-  return new Intl.DateTimeFormat("en", {
+  return new Intl.DateTimeFormat("ko-KR", {
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -24,7 +24,7 @@ export function formatDate(value: Date | string | null | undefined) {
   }
 
   const date = typeof value === "string" ? new Date(value) : value;
-  return new Intl.DateTimeFormat("en", {
+  return new Intl.DateTimeFormat("ko-KR", {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -32,9 +32,21 @@ export function formatDate(value: Date | string | null | undefined) {
 }
 
 export function statusLabel(status: SubmissionStatus | string) {
-  return status.toLowerCase().replace("_", " ");
+  const labels: Record<string, string> = {
+    SOLVED: "풀이 완료",
+    REVIEWING: "검토 중",
+    SKIPPED: "건너뜀",
+  };
+
+  return labels[status.toUpperCase()] ?? status.toLowerCase().replace("_", " ");
 }
 
 export function difficultyLabel(value: string) {
-  return value[0]?.toUpperCase() + value.slice(1);
+  const labels: Record<string, string> = {
+    easy: "쉬움",
+    medium: "보통",
+    hard: "어려움",
+  };
+
+  return labels[value.toLowerCase()] ?? value;
 }
