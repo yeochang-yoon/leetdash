@@ -1,6 +1,13 @@
+import { buildActivityCalendar, type ActivityCalendarWindow } from "@/lib/activity";
 import { catalog, getListProblems, type CatalogList } from "@/lib/catalog";
 import progressData from "@/data/progress.json";
-import { SubmissionStatus, type ProgressData, type Submission, type User } from "@/lib/types";
+import {
+  SubmissionStatus,
+  type ActivityDay,
+  type ProgressData,
+  type Submission,
+  type User,
+} from "@/lib/types";
 
 export type ListProgress = {
   key: string;
@@ -14,6 +21,8 @@ export type ListProgress = {
 
 export type UserDashboardRow = User & {
   submissions: Submission[];
+  activity: ActivityDay[];
+  activityCalendar: ActivityCalendarWindow;
   progress: ListProgress[];
   solvedTotal: number;
   reviewingTotal: number;
@@ -54,10 +63,11 @@ function summarizeList(list: CatalogList, submissions: Map<string, Submission>):
 }
 
 function buildUserRow(
-  user: User & { submissions: Submission[] },
+  user: User & { submissions: Submission[]; activity?: ActivityDay[] },
 ): UserDashboardRow {
   const submissions = new Map(user.submissions.map((submission) => [submission.problemSlug, submission]));
   const progress = catalog.lists.map((list) => summarizeList(list, submissions));
+  const activity = user.activity ?? [];
   const recentSolvedAt =
     user.submissions
       .filter((submission) => submission.status === SubmissionStatus.SOLVED && submission.solvedAt)
@@ -65,6 +75,8 @@ function buildUserRow(
 
   return {
     ...user,
+    activity,
+    activityCalendar: buildActivityCalendar(activity, 35),
     progress,
     solvedTotal: user.submissions.filter((submission) => submission.status === SubmissionStatus.SOLVED).length,
     reviewingTotal: user.submissions.filter((submission) => submission.status === SubmissionStatus.REVIEWING).length,
@@ -140,7 +152,7 @@ export async function getUserDetail(userId: string) {
     })),
   }));
 
-  return { user, lists };
+  return { user, lists, activityCalendar: buildActivityCalendar(user.activity ?? [], 90) };
 }
 
 export async function getListDetail(listKey: string) {
