@@ -252,4 +252,39 @@ describe("build-progress", () => {
       },
     ]);
   });
+
+  it("records submittedAt from the latest commit that touched the submission artifact", async () => {
+    const repo = await mkdtemp(path.join(tmpdir(), "progress-radar-git-"));
+    await mkdir(path.join(repo, "data"), { recursive: true });
+    await mkdir(path.join(repo, "submissions", "ada", "top-interview-easy", "546"), { recursive: true });
+
+    await writeJson(path.join(repo, "data", "problem-catalog.json"), {
+      problems: [{ leetcodeId: 1, slug: "two-sum", title: "Two Sum", difficulty: "easy" }],
+      lists: [
+        {
+          key: "top-interview-easy",
+          items: [{ slug: "two-sum", order: 1, section: "Array", submissionKey: "546" }],
+        },
+      ],
+    });
+    await writeJson(path.join(repo, "data", "users.json"), {
+      users: [{ id: "ada", displayName: "Ada Lovelace", githubUsername: "ada" }],
+    });
+    await writeFile(path.join(repo, "submissions", "ada", "top-interview-easy", "546", "solution.ts"), "// solved\n");
+
+    await runGit(repo, ["init"]);
+    await runGit(repo, ["config", "user.email", "ada@example.com"]);
+    await runGit(repo, ["config", "user.name", "Ada"]);
+    await commitAll(repo, "add two sum solution", "2024-02-03T04:05:06+00:00");
+
+    await execFileAsync(process.execPath, [scriptPath], { cwd: repo });
+
+    const progress = JSON.parse(await readFile(path.join(repo, "data", "progress.json"), "utf8"));
+    expect(progress.users[0].submissions[0]).toMatchObject({
+      problemSlug: "two-sum",
+      sourceKey: "top-interview-easy",
+      submissionKey: "546",
+      submittedAt: "2024-02-03T04:05:06.000Z",
+    });
+  });
 });

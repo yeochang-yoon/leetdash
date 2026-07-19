@@ -237,6 +237,21 @@ function normalizeSolvedAt(value) {
   return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
 }
 
+async function getLatestCommitTime(relativePath) {
+  try {
+    const { stdout } = await execFileAsync("git", ["log", "-1", "--format=%cI", "--", relativePath], { cwd: repoRoot });
+    const value = stdout.trim();
+    if (!value) {
+      return undefined;
+    }
+
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
+  } catch {
+    return undefined;
+  }
+}
+
 async function parseMeta(metaPath) {
   try {
     const raw = JSON.parse(await readFile(metaPath, "utf8"));
@@ -365,6 +380,7 @@ async function collectUserSubmissions({ user, submissionTargets, allPaths, gener
     }
 
     if (!hasMeta) {
+      const submittedAt = await getLatestCommitTime(solutionPath);
       const submission = {
         id: `${user.id}:${target.problemSlug}`,
         userId: user.id,
@@ -377,6 +393,7 @@ async function collectUserSubmissions({ user, submissionTargets, allPaths, gener
         readmePath,
         githubUrl: solutionPath ? blobUrl(solutionPath) : undefined,
         source: "solution-file",
+        submittedAt,
         generatedAt,
       };
       const existing = submissionsBySlug.get(target.problemSlug);
@@ -388,6 +405,7 @@ async function collectUserSubmissions({ user, submissionTargets, allPaths, gener
 
     const parsed = await parseMeta(path.join(repoRoot, metaPath));
     const status = parsed.status ?? (solutionPath ? "SOLVED" : "REVIEWING");
+    const submittedAt = await getLatestCommitTime(solutionPath ?? metaPath);
     const submission = {
       id: `${user.id}:${target.problemSlug}`,
       userId: user.id,
@@ -402,6 +420,7 @@ async function collectUserSubmissions({ user, submissionTargets, allPaths, gener
       readmePath,
       githubUrl: blobUrl(solutionPath ?? metaPath),
       source: parsed.invalid ? "invalid-meta" : "meta",
+      submittedAt,
       rawMeta: parsed.rawMeta,
       generatedAt,
     };

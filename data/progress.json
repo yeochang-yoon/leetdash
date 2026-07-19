@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-19T09:46:21.515Z",
+  "generatedAt": "2026-07-19T10:21:15.948Z",
   "users": [
     {
       "id": "mygo",
@@ -18,7 +18,8 @@
           "language": "JAVA",
           "solutionPath": "submissions/whoisyourbias/top-interview-easy/727/Solution.java",
           "source": "solution-file",
-          "generatedAt": "2026-07-19T09:46:21.515Z"
+          "submittedAt": "2026-07-19T08:17:47.000Z",
+          "generatedAt": "2026-07-19T10:21:15.948Z"
         }
       ],
       "activity": [

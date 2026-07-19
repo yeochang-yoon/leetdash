@@ -4,6 +4,7 @@ import { ExternalLink } from "lucide-react";
 import { ActivityCalendar } from "@/app/components/activity-calendar";
 import { getProblemLeetCodeUrl } from "@/lib/catalog";
 import { difficultyLabel, formatDate, formatDateKey, formatPercent, statusLabel } from "@/lib/format";
+import { getGithubProfileUrl } from "@/lib/github";
 import { formatCatalogListTitle, formatCatalogSection, formatProblemTitle } from "@/lib/i18n";
 import { getUserDetail, listStaticUsers } from "@/lib/progress";
 
@@ -31,7 +32,11 @@ export default async function UserDetailPage({ params }: { params: Promise<{ use
     <div className="page">
       <div className="page-header">
         <div>
-          <p className="eyebrow">@{user.githubUsername}</p>
+          <p className="eyebrow">
+            <a href={getGithubProfileUrl(user.githubUsername)} target="_blank" rel="noreferrer">
+              @{user.githubUsername}
+            </a>
+          </p>
           <h1>{user.displayName}</h1>
           <p className="lede">
             제출물은 master 브랜치 스냅샷의 <span className="mono">{user.submissionsPath}</span>에서 읽습니다.
