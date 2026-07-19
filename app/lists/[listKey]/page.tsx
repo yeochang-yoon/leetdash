@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { catalog } from "@/lib/catalog";
 import { formatPercent } from "@/lib/format";
+import { getGithubProfileUrl } from "@/lib/github";
 import { formatCatalogListTitle } from "@/lib/i18n";
 import { getListDetail } from "@/lib/progress";
 
@@ -65,7 +66,14 @@ export default async function ListDetailPage({ params }: { params: Promise<{ lis
                       <Link className="user-name" href={`/users/${user.id}`}>
                         {user.displayName}
                       </Link>
-                      <span className="muted mono">@{user.githubUsername}</span>
+                      <a
+                        className="muted mono github-link"
+                        href={getGithubProfileUrl(user.githubUsername)}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        @{user.githubUsername}
+                      </a>
                     </td>
                     <td className="progress-cell">
                       <div className="progress-meta">

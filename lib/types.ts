@@ -27,6 +27,7 @@ export type Submission = {
   solutionPath?: string;
   readmePath?: string;
   githubUrl?: string;
+  submittedAt?: string;
   source: "meta" | "solution-file" | "invalid-meta";
   rawMeta?: unknown;
   generatedAt: string;

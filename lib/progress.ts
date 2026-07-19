@@ -1,4 +1,4 @@
-import { catalog, getListProblems, type CatalogList } from "@/lib/catalog";
+import { catalog, getList, getListProblems, getProblem, type CatalogList } from "@/lib/catalog";
 import progressData from "@/data/progress.json";
 import { SubmissionStatus, type ProgressData, type Submission, type User } from "@/lib/types";
 
@@ -19,6 +19,23 @@ export type UserDashboardRow = User & {
   reviewingTotal: number;
   skippedTotal: number;
   recentSolvedAt: string | null;
+};
+
+export type RecentSolvedSubmission = {
+  id: string;
+  userId: string;
+  displayName: string;
+  githubUsername: string;
+  problemSlug: string;
+  problemTitle: string;
+  sourceKey: string;
+  listTitle: string;
+  submittedAt: string;
+  githubUrl?: string;
+};
+
+type RecentSubmissionUser = Pick<User, "id" | "displayName" | "githubUsername"> & {
+  submissions: Submission[];
 };
 
 function summarizeList(list: CatalogList, submissions: Map<string, Submission>): ListProgress {
@@ -51,6 +68,38 @@ function summarizeList(list: CatalogList, submissions: Map<string, Submission>):
     skipped,
     percent: items.length === 0 ? 0 : (solved / items.length) * 100,
   };
+}
+
+export function buildRecentSolvedSubmissions(users: RecentSubmissionUser[], limit = 5): RecentSolvedSubmission[] {
+  return users
+    .flatMap((user) =>
+      user.submissions
+        .filter((submission) => submission.status === SubmissionStatus.SOLVED && submission.submittedAt)
+        .map((submission) => {
+          const problem = getProblem(submission.problemSlug);
+          const list = getList(submission.sourceKey);
+
+          return {
+            id: submission.id,
+            userId: user.id,
+            displayName: user.displayName,
+            githubUsername: user.githubUsername,
+            problemSlug: submission.problemSlug,
+            problemTitle: problem.title,
+            sourceKey: submission.sourceKey,
+            listTitle: list.title,
+            submittedAt: submission.submittedAt ?? "",
+            githubUrl: submission.githubUrl,
+          };
+        }),
+    )
+    .sort(
+      (left, right) =>
+        new Date(right.submittedAt).getTime() - new Date(left.submittedAt).getTime() ||
+        left.displayName.localeCompare(right.displayName) ||
+        left.problemTitle.localeCompare(right.problemTitle),
+    )
+    .slice(0, limit);
 }
 
 function buildUserRow(
@@ -108,6 +157,7 @@ export async function getDashboardData() {
       solvedLastSevenDays,
     },
     listAverages,
+    recentSolvedSubmissions: buildRecentSolvedSubmissions(rows, 5),
     generatedAt: data.generatedAt,
   };
 }

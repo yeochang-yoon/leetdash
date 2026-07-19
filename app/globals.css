@@ -244,6 +244,35 @@ button.primary:hover {
   margin: 0;
 }
 
+.panel-icon {
+  color: var(--accent);
+  flex: 0 0 auto;
+}
+
+.recent-submission-list {
+  display: grid;
+}
+
+.recent-submission-item {
+  align-items: center;
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  gap: 14px;
+  grid-template-columns: minmax(180px, 0.9fr) minmax(260px, 1.5fr) minmax(120px, auto);
+  padding: 14px 18px;
+}
+
+.recent-submission-item:last-child {
+  border-bottom: 0;
+}
+
+.recent-submission-time {
+  color: var(--muted);
+  font-size: 13px;
+  text-align: right;
+  white-space: nowrap;
+}
+
 .table-wrap {
   overflow-x: auto;
 }
@@ -284,8 +313,18 @@ tr:last-child td {
   margin-bottom: 4px;
 }
 
+.user-name.compact {
+  margin-bottom: 2px;
+}
+
 .muted {
   color: var(--muted);
+}
+
+.github-link:hover {
+  color: var(--accent-strong);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .mono {
@@ -454,5 +493,14 @@ tr:last-child td {
   .list-grid,
   .form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .recent-submission-item {
+    align-items: start;
+    grid-template-columns: 1fr;
+  }
+
+  .recent-submission-time {
+    text-align: left;
   }
 }
