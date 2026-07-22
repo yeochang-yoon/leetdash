@@ -2,7 +2,10 @@ import { ReviewFailure } from "./opencode-review-core.mjs";
 
 const leetCodeGraphqlUrl = "https://leetcode.com/graphql";
 const openCodeChatCompletionsUrl = "https://opencode.ai/zen/go/v1/chat/completions";
+const openCodeConfiguredModel = "opencode-go/kimi-k2.7-code";
+const openCodeApiModel = "kimi-k2.7-code";
 const reviewCommentMarker = "<!-- leetdash-opencode-review -->";
+const externalRequestTimeoutMs = 60_000;
 
 function extractRequestId(response) {
   const headers = response?.headers;
@@ -78,6 +81,8 @@ class LeetCodeClient {
   }
 
   async fetchQuestion(titleSlug) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), externalRequestTimeoutMs);
     let response;
     try {
       response = await this.fetchImpl(leetCodeGraphqlUrl, {
@@ -87,42 +92,45 @@ class LeetCodeClient {
           query: "query questionData($titleSlug: String!) { question(titleSlug: $titleSlug) { questionFrontendId title titleSlug difficulty content exampleTestcases metaData codeSnippets { lang langSlug code } topicTags { name slug } } }",
           variables: { titleSlug },
         }),
+        signal: controller.signal,
       });
-    } catch {
+      if (!response?.ok) {
+        throw toSafeHttpFailure({
+          stage: "problem-fetch",
+          reason: "PROBLEM_FETCH_FAILED",
+          response,
+          detail: "LeetCode request failed.",
+        });
+      }
+
+      let body;
+      try {
+        body = await response.json();
+      } catch {
+        throw new ReviewFailure({
+          stage: "problem-fetch",
+          reason: "PROBLEM_FETCH_FAILED",
+          detail: "LeetCode returned an invalid response.",
+        });
+      }
+      if (Array.isArray(body?.errors) || !body?.data?.question) {
+        throw new ReviewFailure({
+          stage: "problem-fetch",
+          reason: "PROBLEM_FETCH_FAILED",
+          detail: "LeetCode question data is unavailable.",
+        });
+      }
+      return body.data.question;
+    } catch (error) {
+      if (error instanceof ReviewFailure) throw error;
       throw new ReviewFailure({
         stage: "problem-fetch",
         reason: "PROBLEM_FETCH_FAILED",
         detail: "LeetCode request failed.",
       });
+    } finally {
+      clearTimeout(timeout);
     }
-
-    if (!response?.ok) {
-      throw toSafeHttpFailure({
-        stage: "problem-fetch",
-        reason: "PROBLEM_FETCH_FAILED",
-        response,
-        detail: "LeetCode request failed.",
-      });
-    }
-
-    let body;
-    try {
-      body = await response.json();
-    } catch {
-      throw new ReviewFailure({
-        stage: "problem-fetch",
-        reason: "PROBLEM_FETCH_FAILED",
-        detail: "LeetCode returned an invalid response.",
-      });
-    }
-    if (Array.isArray(body?.errors) || !body?.data?.question) {
-      throw new ReviewFailure({
-        stage: "problem-fetch",
-        reason: "PROBLEM_FETCH_FAILED",
-        detail: "LeetCode question data is unavailable.",
-      });
-    }
-    return body.data.question;
   }
 }
 
@@ -132,7 +140,7 @@ class OpenCodeClient {
   }
 
   async review({ model, apiKey, prompt }) {
-    if (typeof model !== "string" || !model.startsWith("opencode-go/") || model.length === "opencode-go/".length) {
+    if (model !== openCodeConfiguredModel) {
       throw new ReviewFailure({
         stage: "model-request",
         reason: "MODEL_REQUEST_FAILED",
@@ -141,7 +149,7 @@ class OpenCodeClient {
     }
 
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 60_000);
+    const timeout = setTimeout(() => controller.abort(), externalRequestTimeoutMs);
     let response;
     try {
       response = await this.fetchImpl(openCodeChatCompletionsUrl, {
@@ -151,7 +159,7 @@ class OpenCodeClient {
           Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: model.slice("opencode-go/".length),
+          model: openCodeApiModel,
           temperature: 0,
           messages: [{ role: "user", content: prompt }],
         }),
@@ -186,8 +194,10 @@ class OpenCodeClient {
         detail: "OpenCode returned an invalid response.",
       });
     }
-    const content = body?.choices?.[0]?.message?.content;
-    if (typeof content !== "string" || content.length === 0) {
+    const choices = body?.choices;
+    const message = Array.isArray(choices) && choices.length === 1 ? choices[0]?.message : undefined;
+    const content = message?.content;
+    if (message?.role !== "assistant" || typeof content !== "string" || content.trim().length === 0) {
       throw new ReviewFailure({
         stage: "model-response",
         reason: "MODEL_RESPONSE_INVALID",
@@ -205,8 +215,8 @@ class GitHubReviewClient {
     this.fetchImpl = fetchImpl;
   }
 
-  async request(method, apiPath, { body, params, FailureType = GitHubApiFailure } = {}) {
-    const url = new URL(`https://api.github.com/repos/${this.repository}${apiPath}`);
+  async request(method, apiPath, { body, params, repository = this.repository, FailureType = GitHubApiFailure } = {}) {
+    const url = new URL(`https://api.github.com/repos/${repository}${apiPath}`);
     for (const [key, value] of Object.entries(params ?? {})) {
       if (value !== undefined && value !== null) url.searchParams.set(key, String(value));
     }
@@ -256,6 +266,44 @@ class GitHubReviewClient {
         output: { title, summary },
       },
     });
+  }
+
+  getPullRequest(pullNumber) {
+    return this.request("GET", `/pulls/${pullNumber}`);
+  }
+
+  async listPullRequestFiles(pullNumber) {
+    const files = [];
+    for (let page = 1; ; page += 1) {
+      const result = await this.request("GET", `/pulls/${pullNumber}/files`, {
+        params: { per_page: 100, page },
+      });
+      if (!Array.isArray(result)) throw new GitHubApiFailure({ detail: "GitHub API request failed." });
+      files.push(...result);
+      if (result.length < 100) return files;
+    }
+  }
+
+  async getFileContent({ path, ref, repository = this.repository }) {
+    const segments = typeof path === "string" ? path.split("/") : [];
+    if (
+      typeof repository !== "string"
+      || !/^[^/\s]+\/[^/\s]+$/.test(repository)
+      || segments.length === 0
+      || segments.some((segment) => !segment || segment === "." || segment === ".." || segment.includes("\\"))
+    ) {
+      throw new GitHubApiFailure({ detail: "GitHub API request failed." });
+    }
+    const apiPath = `/contents/${segments.map((segment) => encodeURIComponent(segment)).join("/")}`;
+    const result = await this.request("GET", apiPath, { params: { ref }, repository });
+    if (result?.type !== "file" || result?.encoding !== "base64" || typeof result?.content !== "string") {
+      throw new GitHubApiFailure({ detail: "GitHub API request failed." });
+    }
+    try {
+      return Buffer.from(result.content.replace(/\s/g, ""), "base64").toString("utf8");
+    } catch {
+      throw new GitHubApiFailure({ detail: "GitHub API request failed." });
+    }
   }
 
   async listIssueComments(pullNumber) {

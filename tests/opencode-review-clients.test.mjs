@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { GitHubReviewClient, LeetCodeClient, OpenCodeClient } from "../scripts/opencode-review-clients.mjs";
 
@@ -55,6 +55,36 @@ describe("LeetCodeClient", () => {
       expect(failure.detail).not.toContain("message");
     });
   });
+
+  it("aborts a stalled LeetCode request after the bounded timeout without leaking the fetch error", async () => {
+    vi.useFakeTimers();
+    const rawError = "raw-leetcode-timeout-sentinel";
+    let requestSignal;
+    try {
+      const client = new LeetCodeClient({
+        fetchImpl: async (_url, init) => new Promise((_resolve, reject) => {
+          requestSignal = init.signal;
+          init.signal.addEventListener("abort", () => reject(new Error(rawError)), { once: true });
+        }),
+      });
+      const failurePromise = client.getQuestion("two-sum").catch((failure) => failure);
+
+      await vi.advanceTimersByTimeAsync(60_000);
+      const failure = await failurePromise;
+
+      expect(requestSignal).toBeInstanceOf(AbortSignal);
+      expect(requestSignal.aborted).toBe(true);
+      expect(failure).toMatchObject({
+        stage: "problem-fetch",
+        reason: "PROBLEM_FETCH_FAILED",
+        detail: "LeetCode request failed.",
+      });
+      expect(failure.detail).not.toContain(rawError);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe("OpenCodeClient", () => {
@@ -63,7 +93,7 @@ describe("OpenCodeClient", () => {
     const client = new OpenCodeClient({
       fetchImpl: async (url, init) => {
         requests.push({ url: String(url), init });
-        return jsonResponse({ choices: [{ message: { content: "review result" } }] });
+        return jsonResponse({ choices: [{ message: { role: "assistant", content: "review result" } }] });
       },
     });
 
@@ -102,21 +132,90 @@ describe("OpenCodeClient", () => {
     });
   });
 
-  it("rejects models outside the exact OpenCode provider prefix before fetching", async () => {
-    const fetchImpl = async () => {
-      throw new Error("fetch should not run");
-    };
+  it.each([
+    "other/kimi-k2.7-code",
+    "opencode-go/other-model",
+    "opencode-go/kimi-k2.7-code-extra",
+    "kimi-k2.7-code",
+    "",
+  ])("rejects unsupported configured model %j before fetching", async (model) => {
+    let fetches = 0;
+    const fetchImpl = async () => { fetches += 1; };
     const client = new OpenCodeClient({ fetchImpl });
 
-    await expect(client.review({ model: "other/kimi-k2.7-code", apiKey: "test-secret", prompt: "review prompt" })).rejects.toMatchObject({
+    await expect(client.review({ model, apiKey: "test-secret", prompt: "review prompt" })).rejects.toMatchObject({
       stage: "model-request",
       reason: "MODEL_REQUEST_FAILED",
       retryable: false,
     });
+    expect(fetches).toBe(0);
+  });
+
+  it.each([
+    ["no choices", { choices: [] }],
+    ["multiple choices", { choices: [{ message: { role: "assistant", content: "first" } }, { message: { role: "assistant", content: "second" } }] }],
+    ["non-assistant role", { choices: [{ message: { role: "user", content: "review result" } }] }],
+    ["missing role", { choices: [{ message: { content: "review result" } }] }],
+    ["blank content", { choices: [{ message: { role: "assistant", content: "  " } }] }],
+    ["non-string content", { choices: [{ message: { role: "assistant", content: [{ type: "text", text: "review" }] } }] }],
+  ])("rejects %s through the sanitized model-response failure", async (_name, body) => {
+    const rawSentinel = "raw-choice-sentinel";
+    const client = new OpenCodeClient({ fetchImpl: async () => jsonResponse({ ...body, rawSentinel }) });
+
+    await expect(client.review({
+      model: "opencode-go/kimi-k2.7-code",
+      apiKey: "test-secret",
+      prompt: "review prompt",
+    })).rejects.toMatchObject({
+      stage: "model-response",
+      reason: "MODEL_RESPONSE_INVALID",
+      retryable: false,
+    });
+    await client.review({
+      model: "opencode-go/kimi-k2.7-code",
+      apiKey: "test-secret",
+      prompt: "review prompt",
+    }).catch((failure) => expect(failure.detail).not.toContain(rawSentinel));
   });
 });
 
 describe("GitHubReviewClient", () => {
+  it("loads pull-request metadata, changed files, and exact-head source through REST", async () => {
+    const requests = [];
+    const source = "class Solution { int trustedDataOnly; }";
+    const client = new GitHubReviewClient({
+      repository: "example/leetdash",
+      token: "github-secret",
+      fetchImpl: async (url, init) => {
+        const requestUrl = new URL(url);
+        requests.push({ url: requestUrl, init });
+        if (requestUrl.pathname.endsWith("/pulls/42")) {
+          return jsonResponse({ number: 42, base: { sha: "base-123" }, head: { sha: "head-123", repo: { full_name: "fork-user/leetdash" } } });
+        }
+        if (requestUrl.pathname.endsWith("/pulls/42/files")) {
+          return jsonResponse([{ status: "modified", filename: "submissions/ada/list/1/solution.java" }]);
+        }
+        if (requestUrl.pathname.includes("/contents/")) {
+          return jsonResponse({ type: "file", encoding: "base64", content: Buffer.from(source).toString("base64") });
+        }
+        throw new Error(`Unexpected request: ${requestUrl}`);
+      },
+    });
+
+    await expect(client.getPullRequest(42)).resolves.toMatchObject({ number: 42 });
+    await expect(client.listPullRequestFiles(42)).resolves.toHaveLength(1);
+    await expect(client.getFileContent({
+      path: "submissions/ada/list/1/solution.java",
+      ref: "head-123",
+      repository: "fork-user/leetdash",
+    })).resolves.toBe(source);
+
+    const contentRequest = requests.find(({ url }) => url.pathname.includes("/contents/"));
+    expect(contentRequest.url.pathname).toBe("/repos/fork-user/leetdash/contents/submissions/ada/list/1/solution.java");
+    expect(contentRequest.url.searchParams.get("ref")).toBe("head-123");
+    expect(requests.every(({ init }) => init.method === "GET")).toBe(true);
+  });
+
   it("creates and completes a check for the exact head SHA", async () => {
     const requests = [];
     const client = new GitHubReviewClient({

@@ -53,8 +53,8 @@ The core module accepts plain objects and returns plain objects so tests can exe
 
 This module contains orchestration and external clients:
 
-- obtains changed files from the merge-base diff through the existing validator helper;
-- reads the catalog and changed solution source files;
+- obtains PR metadata and changed files from GitHub REST and derives submission-only applicability inside trusted code;
+- reads the catalog and user registry from the trusted base checkout and fetches changed solution source from the verified PR head repository at the exact head SHA as inert REST data;
 - fetches and caches LeetCode question data by canonical slug;
 - calls the OpenCode Go chat-completions endpoint;
 - creates and completes the explicit `opencode-review` check run;
@@ -66,31 +66,34 @@ All external calls use injected `fetch` functions in tests. The CLI constructs r
 
 ### GitHub Actions workflow
 
-`.github/workflows/deploy-pages.yml` exposes `steps.pr-scope.outputs.submission_only` as a `validate` job output. A pull-request-only review job runs after a successful `validate` job with these permissions:
+`.github/workflows/opencode-review.yml` is a separate `workflow_run` workflow triggered only after a completed `Deploy GitHub Pages` pull-request run. GitHub loads the workflow definition from the default branch, and its job runs only after successful validation. It checks out the PR base SHA with `persist-credentials: false`; it never checks out the PR head or executes PR-controlled scripts, actions configuration, or package hooks. The secret-bearing trusted job has only these permissions:
 
 - `contents: read`
 - `checks: write`
 - `pull-requests: write`
 
-The job always emits an explicit check named `opencode-review` for a valid pull request. For non-submission pull requests it completes the check successfully with a not-applicable summary and does not call LeetCode, OpenCode, or the comments API. This prevents the repository-wide required check from blocking ordinary application pull requests.
+The `pull_request` workflow in `.github/workflows/deploy-pages.yml` retains validation behavior but contains no review job, OpenCode secret, or elevated check/comment permission. The trusted workflow identifies the PR from the `workflow_run` payload, re-fetches its metadata, verifies the triggering base and head SHAs, and derives applicability from GitHub REST file data rather than a PR-controlled job output.
+
+The trusted job always emits an explicit check named `opencode-review` for the exact triggering PR head SHA. For non-submission pull requests it completes the check successfully with a not-applicable summary and does not call LeetCode, OpenCode, the source-content endpoint, or the comments API. This prevents the repository-wide required check from blocking ordinary application pull requests.
 
 The Actions job itself has a different display name so it does not create a second check with the required context name.
 
 ## Data flow
 
-1. The workflow passes the PR number, base SHA, head SHA, repository, workflow-run URL, and `submission_only` output to the review script.
+1. The trusted workflow passes the PR number plus the base and head SHAs from the completed validation run to trusted base-branch code.
 2. The script creates an in-progress `opencode-review` check run for the exact head SHA.
-3. For a non-submission PR, the script completes that check successfully and stops.
-4. For a submission-only PR, the script computes `base...head` changed files using `--no-renames` and selects only added or modified files whose basename is `solution` and whose extension is supported by submission validation.
-5. Each path is parsed as `submissions/<user>/<sourceKey>/<submissionKey>/solution.<extension>`.
-6. The script finds `catalog.lists` entry `key === sourceKey`, then its item whose `submissionKey` matches, then the canonical `catalog.problems` entry for that item's slug.
-7. The LeetCode client calls `https://leetcode.com/graphql` with `question(titleSlug: ...)`. A `Map<string, Promise<QuestionData>>` caches the request per slug, including concurrent requests.
-8. The normalized question contains content with examples and constraints, example test cases, parsed judge metadata, the official code snippet matching the submission language, and topic tags.
-9. The prompt includes the problem identity, all normalized live context, the exact repository path, language, and submitted source.
-10. The OpenCode client strips the required `opencode-go/` configuration prefix and sends `kimi-k2.7-code` as the API `model` with temperature zero and JSON-only instructions.
-11. The response must contain one assistant text content value. The script parses it as JSON and validates the schema and verdict invariants.
-12. Results for all changed solutions are aggregated. Any code FAIL makes the check fail. Otherwise the check succeeds.
-13. The script upserts one managed bot comment and completes the check with the same sanitized summary.
+3. The GitHub client re-fetches PR metadata, requires the same base/head SHAs, lists PR files, normalizes statuses, and uses trusted catalog/user data plus the existing validator to derive submission-only applicability.
+4. For a non-submission PR, the script completes that check successfully and stops.
+5. For a submission-only PR, it selects added or modified `solution.*` paths and fetches each source from the verified PR head repository through the Contents REST API with `ref=<exact head SHA>`; source is handled only as data.
+6. Each path is parsed as `submissions/<user>/<sourceKey>/<submissionKey>/solution.<extension>`.
+7. The script finds `catalog.lists` entry `key === sourceKey`, then its item whose `submissionKey` matches, then the canonical `catalog.problems` entry for that item's slug.
+8. The LeetCode client calls `https://leetcode.com/graphql` with `question(titleSlug: ...)`. A `Map<string, Promise<QuestionData>>` caches the request per slug, including concurrent requests, and a 60-second abort timeout bounds each external request.
+9. The normalized question contains content with examples and constraints, example test cases, parsed judge metadata, the official code snippet matching the submission language, and topic tags.
+10. The prompt includes the problem identity, all normalized live context, the exact repository path, language, and submitted source.
+11. The OpenCode client accepts only `opencode-go/kimi-k2.7-code` and sends the fixed API model `kimi-k2.7-code` with temperature zero and JSON-only instructions.
+12. The response must contain exactly one choice whose message role is `assistant` and whose content is a non-blank string. The script parses that content as JSON and validates the schema and verdict invariants.
+13. Results for all changed solutions are aggregated. Any code FAIL makes the check fail. Otherwise the check succeeds.
+14. The script upserts one managed bot comment and completes the check with the same sanitized summary.
 
 ## LeetCode problem contract
 
@@ -162,7 +165,7 @@ Comment delivery happens after the review verdict is known. If comment listing, 
 
 ## Sweeper integration
 
-The sweeper accepts an ordered list of required checks instead of one check. Its default and workflow configuration are `validate,opencode-review`. Eligibility requires every named check run for the exact PR head SHA to have `status === completed` and `conclusion === success`.
+The sweeper accepts an ordered list of required checks instead of one check. Its default and workflow configuration are `validate,opencode-review`, with authoritative app slug `github-actions`. For each exact check name it selects the unique newest run by check-run ID from that app; a newer failed or in-progress run masks older success, and missing/ambiguous provenance fails closed. Immediately before merging, the sweeper re-fetches all check runs for the same head SHA and repeats eligibility evaluation.
 
 The existing path ownership, catalog validation, draft, conflict, base branch, and exact merge SHA protections remain unchanged.
 
@@ -175,7 +178,7 @@ After implementation verification:
 3. Run the workflow on a submission-only pull request and verify that an `opencode-review` check is emitted for its head SHA.
 4. Update `master` branch protection to require both `validate` and `opencode-review` only after the secret exists and the new check has been observed. This ordering avoids locking all pull requests before the workflow can satisfy the new context.
 
-Fork pull requests do not receive repository secrets under the `pull_request` event. They therefore fail closed without switching to `pull_request_target` or executing untrusted code with elevated privileges.
+Fork pull requests are reviewed without exposing secrets to PR-controlled execution: the trusted `workflow_run` job uses default/base-branch code and treats fork file contents fetched from the verified head repository at the exact SHA only as data. The design does not use `pull_request_target`.
 
 ## Testing strategy
 
@@ -185,15 +188,15 @@ Unit and orchestration tests use temporary files and injected clients. They cove
 - missing list, item, problem, language snippet, content, metadata, and examples;
 - one GraphQL request for multiple solutions with the same slug;
 - inclusion of problem content, test cases, judge metadata, official template, tags, path, and source in the prompt;
-- OpenCode configuration-model to API-model normalization;
+- exact OpenCode configuration/API models and exactly one non-blank assistant choice;
 - PASS and FAIL schema validation, path equality, invariant conflicts, and counterexamples;
 - each stable stage and reason code plus retryability and request-ID extraction;
 - raw secret, authorization, response body, model output, and source-code exclusion from logs and rendered failures;
 - managed-comment creation, update, marker spoof preservation, failure-to-success replacement, and API-failure fallback;
 - exact-head check creation and completion;
 - successful no-op behavior for non-submission pull requests;
-- sweeper acceptance only when both required checks succeed;
-- workflow outputs, permissions, environment variables, and required check names.
+- sweeper acceptance only when the newest authoritative runs for both required checks succeed, including pre-merge revalidation;
+- trusted `workflow_run` trigger, base-SHA checkout, disabled checkout credentials, minimal permissions, and removal of secrets from the PR workflow.
 
 The complete existing test suite, typecheck, and production build run before completion. A live LeetCode read-only smoke request may verify the current GraphQL shape, but automated tests do not depend on external services.
 

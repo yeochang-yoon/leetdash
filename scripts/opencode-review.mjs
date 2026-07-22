@@ -12,7 +12,11 @@ import {
   renderReviewComment,
 } from "./opencode-review-core.mjs";
 import { GitHubReviewClient, LeetCodeClient, OpenCodeClient } from "./opencode-review-clients.mjs";
-import { getChangedFiles, isSubmissionArtifactName } from "./validate-submission-pr.mjs";
+import {
+  isParticipantSubmissionPath,
+  isSubmissionArtifactName,
+  validateSubmissionFiles,
+} from "./validate-submission-pr.mjs";
 
 const solutionName = /^solution\.[^.\/]+$/i;
 const deliveryDiagnostic = "Comment delivery: GitHub review comment delivery failed.";
@@ -56,6 +60,61 @@ function changedFilesLoadFailure() {
     reason: "CATALOG_MAPPING_FAILED",
     detail: "변경된 제출 파일 목록을 가져오지 못했습니다.",
   });
+}
+
+function normalizePullRequestFile(file) {
+  if (!file || typeof file.status !== "string" || typeof file.filename !== "string") {
+    throw changedFilesLoadFailure();
+  }
+  const statuses = { added: "A", modified: "M", removed: "D", renamed: "R" };
+  return { status: statuses[file.status] ?? file.status, path: file.filename };
+}
+
+async function loadTrustedPullRequestScope({
+  githubClient,
+  pullNumber,
+  baseSha,
+  headSha,
+  catalog,
+  users,
+}) {
+  let pullRequest;
+  try {
+    pullRequest = await githubClient.getPullRequest(pullNumber);
+  } catch {
+    throw changedFilesLoadFailure();
+  }
+  if (
+    pullRequest?.number !== pullNumber
+    || pullRequest?.base?.sha !== baseSha
+    || pullRequest?.head?.sha !== headSha
+    || typeof pullRequest?.head?.repo?.full_name !== "string"
+    || !/^[^/\s]+\/[^/\s]+$/.test(pullRequest.head.repo.full_name)
+    || typeof pullRequest?.user?.login !== "string"
+  ) {
+    throw changedFilesLoadFailure();
+  }
+
+  let files;
+  try {
+    files = await githubClient.listPullRequestFiles(pullNumber);
+  } catch {
+    throw changedFilesLoadFailure();
+  }
+  if (!Array.isArray(files)) throw changedFilesLoadFailure();
+  const changedFiles = files.map(normalizePullRequestFile);
+  const submissionOnly = changedFiles.length > 0
+    && changedFiles.every((file) => isParticipantSubmissionPath(file.path));
+  if (submissionOnly) {
+    const errors = validateSubmissionFiles(changedFiles, {
+      authorLogin: pullRequest.user.login,
+      catalogInput: catalog,
+      checkFileExists: false,
+      usersInput: users,
+    });
+    if (errors.length > 0) throw changedFilesLoadFailure();
+  }
+  return { submissionOnly, changedFiles, headRepository: pullRequest.head.repo.full_name };
 }
 
 async function defaultSourceReader(filePath, {
@@ -102,6 +161,10 @@ async function defaultCatalogLoader() {
   return JSON.parse(await readFile(path.join(process.cwd(), "data", "problem-catalog.json"), "utf8"));
 }
 
+async function defaultUsersLoader() {
+  return JSON.parse(await readFile(path.join(process.cwd(), "data", "users.json"), "utf8"));
+}
+
 function noSolutionsMarkdown({ headSha, runUrl }) {
   return [
     "<!-- leetdash-opencode-review -->",
@@ -114,6 +177,14 @@ function noSolutionsMarkdown({ headSha, runUrl }) {
 
 function notApplicableMarkdown() {
   return "OpenCode submission review is not applicable to this pull request.";
+}
+
+function reviewConfigurationFailure() {
+  return new ReviewFailure({
+    stage: "model-request",
+    reason: "MODEL_REQUEST_FAILED",
+    detail: "OpenCode review configuration is unavailable.",
+  });
 }
 
 function redactModelText(value, source) {
@@ -164,13 +235,14 @@ async function reviewPullRequest({
   loadCatalog = defaultCatalogLoader,
   changedFiles,
   loadChangedFiles = async () => [],
+  loadReviewScope,
   headSha,
   pullNumber,
   runUrl,
   apiKey,
   model,
   summaryPath,
-  submissionOnly = false,
+  submissionOnly,
 }) {
   const check = await githubClient.createCheck({
     headSha,
@@ -184,12 +256,32 @@ async function reviewPullRequest({
   let failure;
   let markdown;
   let conclusion = "success";
+  let activeSubmissionOnly = false;
 
   try {
-    if (!submissionOnly) {
+    let activeChangedFiles = changedFiles;
+    if (typeof submissionOnly === "boolean") {
+      activeSubmissionOnly = submissionOnly;
+    } else {
+      if (typeof loadReviewScope !== "function") throw changedFilesLoadFailure();
+      let scope;
+      try {
+        scope = await loadReviewScope();
+      } catch (error) {
+        if (error instanceof ReviewFailure) throw error;
+        throw changedFilesLoadFailure();
+      }
+      if (!scope || typeof scope.submissionOnly !== "boolean" || !Array.isArray(scope.changedFiles)) {
+        throw changedFilesLoadFailure();
+      }
+      activeSubmissionOnly = scope.submissionOnly;
+      activeChangedFiles = scope.changedFiles;
+    }
+
+    if (!activeSubmissionOnly) {
       markdown = notApplicableMarkdown();
     } else {
-      let activeChangedFiles = changedFiles;
+      if (!apiKey || !model) throw reviewConfigurationFailure();
       if (activeChangedFiles === undefined) {
         try {
           activeChangedFiles = await loadChangedFiles();
@@ -235,7 +327,7 @@ async function reviewPullRequest({
   }
 
   let summary = markdown;
-  if (submissionOnly) {
+  if (activeSubmissionOnly || failure) {
     try {
       await githubClient.upsertReviewComment({ pullNumber, body: markdown });
     } catch {
@@ -261,12 +353,9 @@ function parseArgs(argv) {
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === "--submission-only") {
-      const value = argv[index + 1];
-      if (value === "true") args.submissionOnly = true;
-      else if (value === "false") args.submissionOnly = false;
-      else args.submissionOnlyInvalid = true;
-      index += 1;
-    } else if (["--base", "--head", "--pull-number", "--changed-files"].includes(argument)) {
+      args.submissionOnlyInvalid = true;
+      if (argv[index + 1] !== undefined && !argv[index + 1].startsWith("--")) index += 1;
+    } else if (["--base", "--head", "--pull-number"].includes(argument)) {
       args[argument.slice(2).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase())] = argv[index + 1];
       index += 1;
     }
@@ -279,11 +368,10 @@ function requiredConfiguration(args, env) {
   if (!env.GITHUB_REPOSITORY) missing.push("GITHUB_REPOSITORY");
   if (!env.GITHUB_TOKEN) missing.push("GITHUB_TOKEN");
   if (!/^\d+$/.test(args.pullNumber ?? "")) missing.push("--pull-number");
+  if (!args.base) missing.push("--base");
   if (!args.head) missing.push("--head");
   if (!env.GITHUB_SERVER_URL) missing.push("GITHUB_SERVER_URL");
   if (!env.GITHUB_RUN_ID) missing.push("GITHUB_RUN_ID");
-  if (args.submissionOnly === true && !env.OPENCODE_API_KEY) missing.push("OPENCODE_API_KEY");
-  if (args.submissionOnly === true && !env.OPENCODE_REVIEW_MODEL) missing.push("OPENCODE_REVIEW_MODEL");
   return missing;
 }
 
@@ -292,7 +380,7 @@ async function main(options = {}) {
   const env = options.env ?? process.env;
   const args = parseArgs(argv);
   if (args.submissionOnlyInvalid) {
-    console.error("Invalid configuration: --submission-only");
+    console.error("Invalid configuration: --submission-only is not supported");
     return { exitCode: 1 };
   }
 
@@ -303,26 +391,49 @@ async function main(options = {}) {
   }
 
   const runUrl = `${env.GITHUB_SERVER_URL.replace(/\/$/, "")}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}`;
+  const githubClient = options.githubClient ?? new GitHubReviewClient({ repository: env.GITHUB_REPOSITORY, token: env.GITHUB_TOKEN });
+  let trustedCatalog = options.catalog;
+  let trustedUsers = options.users;
+  let trustedHeadRepository = env.GITHUB_REPOSITORY;
+  const loadCatalog = async () => {
+    if (trustedCatalog === undefined) trustedCatalog = await (options.loadCatalog ?? defaultCatalogLoader)();
+    return trustedCatalog;
+  };
+  const loadUsers = async () => {
+    if (trustedUsers === undefined) trustedUsers = await (options.loadUsers ?? defaultUsersLoader)();
+    return trustedUsers;
+  };
+  const configuredLoadReviewScope = options.loadReviewScope ?? (async () => loadTrustedPullRequestScope({
+    githubClient,
+    pullNumber: Number(args.pullNumber),
+    baseSha: args.base,
+    headSha: args.head,
+    catalog: await loadCatalog(),
+    users: await loadUsers(),
+  }));
+  const loadReviewScope = async () => {
+    const scope = await configuredLoadReviewScope();
+    if (typeof scope?.headRepository === "string") trustedHeadRepository = scope.headRepository;
+    return scope;
+  };
   const result = await reviewPullRequest({
-    githubClient: options.githubClient ?? new GitHubReviewClient({ repository: env.GITHUB_REPOSITORY, token: env.GITHUB_TOKEN }),
+    githubClient,
     leetcodeClient: options.leetcodeClient ?? new LeetCodeClient(),
     openCodeClient: options.openCodeClient ?? new OpenCodeClient(),
-    readFile: options.readFile,
+    readFile: options.readFile ?? ((filePath) => githubClient.getFileContent({
+      path: filePath,
+      ref: args.head,
+      repository: trustedHeadRepository,
+    })),
     catalog: options.catalog,
-    loadCatalog: options.loadCatalog,
-    changedFiles: options.changedFiles,
-    loadChangedFiles: () => (options.getChangedFiles ?? getChangedFiles)({
-      base: args.base,
-      head: args.head,
-      changedFilesPath: args.changedFiles,
-    }),
+    loadCatalog,
+    loadReviewScope,
     headSha: args.head,
     pullNumber: Number(args.pullNumber),
     runUrl,
     apiKey: env.OPENCODE_API_KEY,
     model: env.OPENCODE_REVIEW_MODEL,
     summaryPath: options.summaryPath ?? env.GITHUB_STEP_SUMMARY,
-    submissionOnly: args.submissionOnly === true,
   });
   return { exitCode: result.conclusion === "failure" ? 1 : 0, result };
 }
@@ -335,4 +446,4 @@ if (invokedPath === fileURLToPath(import.meta.url)) {
   });
 }
 
-export { appendReviewSummary, defaultSourceReader, main, reviewPullRequest };
+export { appendReviewSummary, defaultSourceReader, loadTrustedPullRequestScope, main, reviewPullRequest };

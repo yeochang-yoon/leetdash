@@ -4,7 +4,7 @@
 
 **Goal:** Add a fail-closed OpenCode Go review check and managed PR comment for every changed LeetCode solution, then require that check in the submission sweeper.
 
-**Architecture:** Keep deterministic path, catalog, problem, prompt, result, and Markdown contracts in `opencode-review-core.mjs`; isolate HTTP clients and sanitization in `opencode-review-clients.mjs`; and put workflow/check/comment orchestration in `opencode-review.mjs`. The existing validation workflow starts the runner after `validate`, while the sweeper requires both current-head checks.
+**Architecture:** Keep deterministic path, catalog, problem, prompt, result, and Markdown contracts in `opencode-review-core.mjs`; isolate HTTP clients and sanitization in `opencode-review-clients.mjs`; and put trusted GitHub-data/check/comment orchestration in `opencode-review.mjs`. A separate default-branch `workflow_run` workflow checks out the verified PR base SHA without credentials, derives applicability through GitHub REST, and treats exact-head solution content only as data. The sweeper requires the newest authoritative runs for both current-head checks and revalidates them immediately before merge.
 
 **Tech Stack:** Node.js 20 ESM, native `fetch`, Vitest 3, GitHub Actions, GitHub REST Checks/Issues APIs, LeetCode GraphQL, OpenCode Go OpenAI-compatible chat completions.
 
@@ -32,8 +32,9 @@
 - Create `tests/opencode-review-clients.test.mjs`: HTTP, cache, redaction, and API request tests.
 - Create `tests/opencode-review.test.mjs`: orchestration, comment replacement, fallback, and check lifecycle tests.
 - Modify `scripts/validate-submission-pr.mjs`: export the solution-artifact predicate needed by the reviewer.
-- Modify `.github/workflows/deploy-pages.yml`: expose submission scope and run the review lifecycle.
-- Modify `tests/deploy-workflow.test.ts`: assert the review job contract.
+- Modify `.github/workflows/deploy-pages.yml`: keep PR validation but remove the secret-bearing review lifecycle.
+- Create `.github/workflows/opencode-review.yml`: run trusted base code after completed successful PR validation workflows.
+- Modify `tests/deploy-workflow.test.ts` and create `tests/opencode-review-workflow.test.ts`: assert review isolation and the trusted workflow contract.
 - Modify `scripts/sweep-submission-prs.mjs`: require a list of successful checks.
 - Modify `tests/sweep-submission-prs.test.mjs`: cover multiple required checks.
 - Modify `.github/workflows/sweep-submission-prs.yml`: configure both checks.
@@ -451,7 +452,7 @@ Expected: FAIL because the clients module is missing.
 
 - [ ] **Step 3: Implement safe HTTP helpers and LeetCode client**
 
-Use request-ID header priority `x-request-id`, `request-id`, then `cf-ray`. Retryable statuses are 408, 425, 429, and 500-599. Cache the Promise before awaiting it and retain both success and failure for the run. Parse a successful JSON response internally but throw fixed details for invalid JSON, GraphQL errors, or missing question data. Do not add a retry loop.
+Use request-ID header priority `x-request-id`, `request-id`, then `cf-ray`. Retryable statuses are 408, 425, 429, and 500-599. Cache the Promise before awaiting it and retain both success and failure for the run. Parse a successful JSON response internally but throw fixed details for invalid JSON, GraphQL errors, or missing question data. Bound the request and response body with a fixed 60-second `AbortController` timeout and clear it in `finally`; do not add a retry loop.
 
 - [ ] **Step 4: Write failing OpenCode request tests**
 
@@ -465,7 +466,7 @@ Assert `OpenCodeClient.review({ model: "opencode-go/kimi-k2.7-code", apiKey: "te
 }
 ```
 
-to the fixed endpoint with `Authorization: Bearer test-secret`, while returning only `choices[0].message.content`. Assert the API key and raw body never occur in any thrown `ReviewFailure`. Reject model strings without the exact `opencode-go/` prefix before fetch with `MODEL_REQUEST_FAILED`.
+to the fixed endpoint with `Authorization: Bearer test-secret`, while returning only the content of exactly one choice whose `message.role` is `assistant` and whose content is a non-blank string. Assert the API key and raw body never occur in any thrown `ReviewFailure`. Accept only the exact configured model `opencode-go/kimi-k2.7-code`; reject every other value before fetch with `MODEL_REQUEST_FAILED`.
 
 - [ ] **Step 5: Implement OpenCode client and verify its tests GREEN**
 
@@ -508,7 +509,7 @@ git commit -m "feat: add review service clients"
 **Interfaces:**
 - Export from validator: `isSubmissionArtifactName` in addition to existing exports.
 - Produce: `reviewPullRequest(options)`, `appendReviewSummary(markdown, summaryPath)`, and CLI `main()`.
-- `reviewPullRequest` accepts injected `githubClient`, `leetcodeClient`, `openCodeClient`, file readers, catalog, and changed files for tests.
+- `reviewPullRequest` accepts injected `githubClient`, `leetcodeClient`, `openCodeClient`, trusted-scope loader, file readers, catalog, and changed files for tests.
 
 - [ ] **Step 1: Write failing orchestration success/cache tests**
 
@@ -529,7 +530,7 @@ Expected: FAIL because the orchestrator is missing.
 
 - [ ] **Step 3: Implement the successful review lifecycle**
 
-Filter changed files with statuses `A` or `M` and `isSubmissionArtifactName`, then require a `solution.*` basename. Read catalog from `data/problem-catalog.json` and source via UTF-8 only after path validation. Create the check first, aggregate results in changed-path order, render one comment, upsert it, append the same Markdown to the summary, and complete the check.
+Create the check first. Re-fetch PR metadata and require the triggering base/head SHAs, list PR files through GitHub REST, derive submission-only applicability with trusted catalog/user data, and filter `A`/`M` `solution.*` paths. Fetch each solution from the verified PR head repository through REST with `ref=<exact head SHA>` and never execute it. Aggregate results in changed-path order, render one comment, append the same Markdown to the summary, and complete the check.
 
 - [ ] **Step 4: Write failing code FAIL, infrastructure failure, rerun, and comment fallback tests**
 
@@ -554,11 +555,11 @@ Expected: all orchestration tests PASS.
 
 - [ ] **Step 6: Write failing CLI environment validation tests**
 
-Spawn the CLI with a temporary changed-files fixture and controlled environment. Assert it requires `GITHUB_REPOSITORY`, `GITHUB_TOKEN`, PR number, head SHA, run URL, and—only for submission-only review—`OPENCODE_API_KEY` and `OPENCODE_REVIEW_MODEL`. Missing values must produce fixed names-only messages and must not dump the environment.
+Spawn the CLI with controlled environment. Assert it requires `GITHUB_REPOSITORY`, `GITHUB_TOKEN`, PR number, base SHA, head SHA, and run URL. The trusted scope loader requires OpenCode configuration only after it proves the PR is submission-only and completes a sanitized failure check when that configuration is unavailable. Missing values must produce fixed names-only messages and must not dump the environment.
 
 - [ ] **Step 7: Implement CLI parsing and validator export**
 
-Accept arguments `--base`, `--head`, `--pull-number`, and `--submission-only`. Build run URL from `GITHUB_SERVER_URL`, `GITHUB_REPOSITORY`, and `GITHUB_RUN_ID`. Use `getChangedFiles({ base, head })`. Export `isSubmissionArtifactName` from the validator without changing validation behavior.
+Accept only `--base`, `--head`, and `--pull-number`; reject the deprecated `--submission-only` path so omission cannot silently become N/A. Build the run URL from `GITHUB_SERVER_URL`, `GITHUB_REPOSITORY`, and `GITHUB_RUN_ID`. Use the GitHub client to re-fetch PR metadata/files and exact-head source content. Export the validator predicates needed to derive applicability without changing validation behavior.
 
 - [ ] **Step 8: Run focused regression tests and commit Task 4**
 
@@ -583,60 +584,57 @@ git commit -m "feat: orchestrate submission reviews"
 
 **Files:**
 - Modify: `.github/workflows/deploy-pages.yml`
+- Create: `.github/workflows/opencode-review.yml`
 - Modify: `tests/deploy-workflow.test.ts`
-- Modify: `.env.example`
+- Create: `tests/opencode-review-workflow.test.ts`
 
 **Interfaces:**
-- `validate.outputs.submission_only` mirrors `steps.pr-scope.outputs.submission_only`.
-- Review runner job receives the exact PR/base/head arguments and OpenCode settings.
+- The deploy workflow retains validation and deploy behavior but has no review job, OpenCode secret, or review-write permissions.
+- A separate `workflow_run` workflow responds only to completed successful PR runs of `Deploy GitHub Pages`.
+- The review workflow checks out the event's verified PR base SHA with credentials disabled, then passes the exact base SHA, head SHA, and PR number to the trusted CLI. It never checks out or executes the PR head.
 
 - [ ] **Step 1: Write failing workflow contract assertions**
 
-Extend `tests/deploy-workflow.test.ts` to assert normalized workflow text contains:
+Extend `tests/deploy-workflow.test.ts` to assert the deploy workflow has no review job, OpenCode setting, `checks: write`, or `pull-requests: write`. Add `tests/opencode-review-workflow.test.ts` and assert normalized workflow text contains:
 
 ```text
-outputs:
-      submission_only: ${{ steps.pr-scope.outputs.submission_only }}
+workflow_run:
+  workflows: [Deploy GitHub Pages]
+  types: [completed]
 ```
 
-and a PR-only job with `needs: validate`, permissions `contents: read`, `checks: write`, `pull-requests: write`, checkout with `fetch-depth: 0`, and a command equivalent to:
+Assert the job requires a successful run associated with a pull request, grants only `contents: read`, `checks: write`, and `pull-requests: write`, and checks out `${{ github.event.workflow_run.pull_requests[0].base.sha }}` with `persist-credentials: false`. Require a command equivalent to:
 
 ```yaml
 node scripts/opencode-review.mjs \
-  --base "${{ github.event.pull_request.base.sha }}" \
-  --head "${{ github.event.pull_request.head.sha }}" \
-  --pull-number "${{ github.event.pull_request.number }}" \
-  --submission-only "${{ needs.validate.outputs.submission_only }}"
+  --base "${{ github.event.workflow_run.pull_requests[0].base.sha }}" \
+  --head "${{ github.event.workflow_run.pull_requests[0].head.sha }}" \
+  --pull-number "${{ github.event.workflow_run.pull_requests[0].number }}"
 ```
 
-Assert environment mappings use `secrets.GITHUB_TOKEN`, `secrets.OPENCODE_API_KEY`, and `vars.OPENCODE_REVIEW_MODEL` and the job display name is not exactly `opencode-review`.
+Assert environment mappings use `secrets.GITHUB_TOKEN`, `secrets.OPENCODE_API_KEY`, and `vars.OPENCODE_REVIEW_MODEL`. Reject `pull_request_target`, any PR-head checkout, and the removed `--submission-only` flag.
 
 - [ ] **Step 2: Run workflow test and verify RED**
 
-Run: `npm.cmd test -- tests/deploy-workflow.test.ts`
+Run: `npm.cmd test -- tests/deploy-workflow.test.ts tests/opencode-review-workflow.test.ts`
 
-Expected: FAIL because the review job and output are missing.
+Expected: FAIL because the isolated trusted review workflow is missing and the deploy workflow still contains review behavior.
 
-- [ ] **Step 3: Modify the workflow and environment example**
+- [ ] **Step 3: Isolate review execution in the trusted workflow**
 
-Add the job output under `validate`. Add a pull-request-only runner job after `validate`; do not install dependencies because the script uses Node 20 built-ins. Add to `.env.example`:
-
-```dotenv
-OPENCODE_API_KEY=""
-OPENCODE_REVIEW_MODEL="opencode-go/kimi-k2.7-code"
-```
+Remove review execution and its elevated permissions from the pull-request workflow. Add the `workflow_run` workflow using only trusted default-branch code at the verified base SHA. Give checkout no persisted credentials, pass PR-head identifiers only as data to the GitHub REST orchestration, and expose the OpenCode secret only in this trusted job.
 
 - [ ] **Step 4: Verify workflow tests GREEN and commit Task 5**
 
-Run: `npm.cmd test -- tests/deploy-workflow.test.ts tests/opencode-review.test.mjs`
+Run: `npm.cmd test -- tests/deploy-workflow.test.ts tests/opencode-review-workflow.test.ts tests/opencode-review.test.mjs`
 
 Expected: all focused tests PASS.
 
 Commit:
 
 ```bash
-git add .github/workflows/deploy-pages.yml tests/deploy-workflow.test.ts .env.example
-git commit -m "ci: run OpenCode submission review"
+git add .github/workflows/deploy-pages.yml .github/workflows/opencode-review.yml tests/deploy-workflow.test.ts tests/opencode-review-workflow.test.ts
+git commit -m "ci: isolate trusted OpenCode review"
 ```
 
 ---
@@ -652,6 +650,7 @@ git commit -m "ci: run OpenCode submission review"
 **Interfaces:**
 - Replace `requiredCheck` with `requiredChecks`, defaulting to `["validate", "opencode-review"]`.
 - Replace `SWEEP_REQUIRED_CHECK` with `SWEEP_REQUIRED_CHECKS=validate,opencode-review`.
+- Require `SWEEP_REQUIRED_CHECK_APP=github-actions` and accept only the unique newest run by check-run ID from that GitHub App.
 
 - [ ] **Step 1: Change sweeper tests first**
 
@@ -659,22 +658,22 @@ Define:
 
 ```js
 const successfulChecks = [
-  { name: "validate", status: "completed", conclusion: "success" },
-  { name: "opencode-review", status: "completed", conclusion: "success" },
+  { id: 101, name: "validate", status: "completed", conclusion: "success", app: { slug: "github-actions" } },
+  { id: 201, name: "opencode-review", status: "completed", conclusion: "success", app: { slug: "github-actions" } },
 ];
 ```
 
-Use it in every eligible orchestration fixture. Add one test for each missing, incomplete, and failed `opencode-review` state and assert reason `opencode-review check is not successful for abc123.`. Keep the existing validate-failure assertion.
+Use it in every eligible orchestration fixture. Add one test for each missing, incomplete, and failed `opencode-review` state and assert reason `opencode-review check is not successful for abc123.`. Add regressions proving a newer failed/in-progress run masks an older success, another app cannot spoof success, missing app provenance fails closed, tied latest IDs are ambiguous, and a pre-merge re-fetch catches a changed check result. Keep the existing validate-failure assertion.
 
 - [ ] **Step 2: Run sweeper tests and verify RED**
 
 Run: `npm.cmd test -- tests/sweep-submission-prs.test.mjs`
 
-Expected: FAIL because only `validate` is required.
+Expected: FAIL because check provenance, newest-run selection, and the pre-merge check re-fetch are missing.
 
-- [ ] **Step 3: Implement required-check lists**
+- [ ] **Step 3: Implement authoritative newest-check gating**
 
-Normalize constructor/CLI input by splitting comma-separated names, trimming, removing blanks, and preserving order. `evaluatePullRequest` loops over every required name and uses `hasSuccessfulCheckRun`. The client may request all check runs once for the SHA; do not accept a successful run from a different SHA because the endpoint remains `/commits/<headSha>/check-runs`.
+Normalize constructor/CLI input by splitting comma-separated names, trimming, removing blanks, and preserving order. For each required name, reject exact-name runs with missing provenance, filter to the configured app slug, require safe integer IDs, and evaluate only the unique greatest ID. Continue using `/commits/<headSha>/check-runs`, then fetch that endpoint again immediately before merge and repeat the full eligibility evaluation. Merge only with the exact head SHA.
 
 - [ ] **Step 4: Write failing workflow configuration assertion**
 
@@ -682,6 +681,7 @@ Extend `tests/sweep-workflow.test.ts` to require:
 
 ```yaml
 SWEEP_REQUIRED_CHECKS: validate,opencode-review
+SWEEP_REQUIRED_CHECK_APP: github-actions
 ```
 
 and reject the singular environment name.

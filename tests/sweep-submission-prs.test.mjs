@@ -16,8 +16,8 @@ const catalog = {
 };
 
 const successfulChecks = [
-  { name: "validate", status: "completed", conclusion: "success" },
-  { name: "opencode-review", status: "completed", conclusion: "success" },
+  { id: 101, name: "validate", status: "completed", conclusion: "success", app: { slug: "github-actions" } },
+  { id: 201, name: "opencode-review", status: "completed", conclusion: "success", app: { slug: "github-actions" } },
 ];
 
 function makePullRequest(overrides = {}) {
@@ -138,6 +138,55 @@ describe("submission PR sweeper eligibility", () => {
     expect(decision).toEqual({ eligible: false, reason: "opencode-review check is not successful for abc123." });
   });
 
+  it.each([
+    ["failed", { status: "completed", conclusion: "failure" }],
+    ["in progress", { status: "in_progress", conclusion: null }],
+  ])("lets a newer %s run mask an older successful run", (_name, newestState) => {
+    const decision = evaluatePullRequest({
+      pullRequest: makePullRequest(),
+      files: [validFile],
+      checkRuns: [
+        successfulChecks[0],
+        successfulChecks[1],
+        { ...successfulChecks[1], id: 202, ...newestState },
+      ],
+      users,
+      catalog,
+    });
+
+    expect(decision).toEqual({ eligible: false, reason: "opencode-review check is not successful for abc123." });
+  });
+
+  it("does not accept a successful exact-name run from another GitHub App", () => {
+    const decision = evaluatePullRequest({
+      pullRequest: makePullRequest(),
+      files: [validFile],
+      checkRuns: [
+        successfulChecks[0],
+        { ...successfulChecks[1], app: { slug: "untrusted-review-app" } },
+      ],
+      users,
+      catalog,
+    });
+
+    expect(decision).toEqual({ eligible: false, reason: "opencode-review check is not successful for abc123." });
+  });
+
+  it.each([
+    ["missing app provenance", { ...successfulChecks[1], app: undefined }],
+    ["ambiguous latest run", [successfulChecks[1], { ...successfulChecks[1], conclusion: "failure" }]],
+  ])("rejects %s", (_name, reviewRuns) => {
+    const decision = evaluatePullRequest({
+      pullRequest: makePullRequest(),
+      files: [validFile],
+      checkRuns: [successfulChecks[0], ...(Array.isArray(reviewRuns) ? reviewRuns : [reviewRuns])],
+      users,
+      catalog,
+    });
+
+    expect(decision).toEqual({ eligible: false, reason: "opencode-review check is not successful for abc123." });
+  });
+
   it("normalizes comma-separated required check names while preserving their order", () => {
     const decision = evaluatePullRequest({
       pullRequest: makePullRequest(),
@@ -216,7 +265,7 @@ describe("submission PR sweeper orchestration", () => {
 
     expect(result.mergedCount).toBe(1);
     expect(client.mergeCalls).toEqual([{ number: 7, sha: "sha-7" }]);
-    expect(client.checkRunCalls).toEqual(["sha-7"]);
+    expect(client.checkRunCalls).toEqual(["sha-7", "sha-7"]);
     expect(client.dispatchCalls).toEqual([{ workflowFile: "deploy-pages.yml", ref: "master" }]);
   });
 
@@ -278,5 +327,31 @@ describe("GitHubClient check-run retrieval", () => {
     expect(requests).toHaveLength(1);
     expect(requests[0].pathname).toBe("/repos/leetdash/test/commits/abc123/check-runs");
     expect(requests[0].searchParams.get("check_name")).toBeNull();
+  });
+
+  it("re-fetches checks immediately before merge and stops when a rerun starts", async () => {
+    const client = new FakeGitHubClient({
+      pullRequests: [makePullRequest({ number: 7, head: { sha: "sha-7" } })],
+      filesByNumber: { 7: [validFile] },
+      checkRunsBySha: { "sha-7": successfulChecks },
+    });
+    let checkCalls = 0;
+    client.listCheckRuns = async (sha) => {
+      client.checkRunCalls ??= [];
+      client.checkRunCalls.push(sha);
+      checkCalls += 1;
+      return checkCalls === 1
+        ? successfulChecks
+        : [...successfulChecks, { ...successfulChecks[1], id: 202, status: "in_progress", conclusion: null }];
+    };
+
+    const result = await sweepSubmissionPullRequests({ client, users, catalog });
+
+    expect(result).toEqual({
+      mergedCount: 0,
+      results: [{ number: 7, status: "skipped", reason: "opencode-review check is not successful for sha-7." }],
+    });
+    expect(client.checkRunCalls).toEqual(["sha-7", "sha-7"]);
+    expect(client.mergeCalls).toEqual([]);
   });
 });

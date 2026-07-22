@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-const { defaultSourceReader, main, reviewPullRequest } = await import("../scripts/opencode-review.mjs");
+const { defaultSourceReader, loadTrustedPullRequestScope, main, reviewPullRequest } = await import("../scripts/opencode-review.mjs");
 const { GitHubDeliveryFailure, LeetCodeClient, OpenCodeClient } = await import("../scripts/opencode-review-clients.mjs");
 const { ReviewFailure } = await import("../scripts/opencode-review-core.mjs");
 const { isSubmissionArtifactName } = await import("../scripts/validate-submission-pr.mjs");
@@ -18,6 +18,9 @@ const secondPath = "submissions/grace/top-interview-easy/1/solution.java";
 const catalog = {
   lists: [{ key: "top-interview-easy", items: [{ submissionKey: "1", slug: "two-sum" }] }],
   problems: [{ slug: "two-sum", leetcodeId: 1, title: "Two Sum", difficulty: "Easy" }],
+};
+const users = {
+  users: [{ id: "ada", displayName: "Ada Lovelace", githubUsername: "ada" }],
 };
 const question = {
   content: "Find two numbers.",
@@ -270,7 +273,7 @@ describe("reviewPullRequest", () => {
         openCodeClient: new OpenCodeClient({
           fetchImpl: async (_url, request) => {
             headers.push(request.headers.Authorization);
-            return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ choices: [{ message: { content: JSON.stringify({ ...JSON.parse(passResult(firstPath)), summary: sentinels.source }) } }] }) };
+            return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ choices: [{ message: { role: "assistant", content: JSON.stringify({ ...JSON.parse(passResult(firstPath)), summary: sentinels.source }) } }] }) };
           },
         }),
       });
@@ -280,7 +283,7 @@ describe("reviewPullRequest", () => {
         openCodeClient: new OpenCodeClient({
           fetchImpl: async (_url, request) => {
             headers.push(request.headers.Authorization);
-            return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ choices: [{ message: { content: sentinels.modelBody } }] }) };
+            return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ choices: [{ message: { role: "assistant", content: sentinels.modelBody } }] }) };
           },
         }),
       });
@@ -399,6 +402,71 @@ describe("reviewPullRequest", () => {
   });
 });
 
+describe("trusted pull-request scope", () => {
+  it("derives submission-only applicability from GitHub API file data", async () => {
+    const calls = [];
+    const scope = await loadTrustedPullRequestScope({
+      githubClient: {
+        getPullRequest: async (number) => {
+          calls.push(["pull", number]);
+          return { number, user: { login: "ada" }, base: { sha: "base-sha" }, head: { sha: "head-sha", repo: { full_name: "fork-user/leetdash" } } };
+        },
+        listPullRequestFiles: async (number) => {
+          calls.push(["files", number]);
+          return [{ status: "added", filename: firstPath }];
+        },
+      },
+      pullNumber: 42,
+      baseSha: "base-sha",
+      headSha: "head-sha",
+      catalog,
+      users,
+    });
+
+    expect(calls).toEqual([["pull", 42], ["files", 42]]);
+    expect(scope).toEqual({
+      submissionOnly: true,
+      changedFiles: [{ status: "A", path: firstPath }],
+      headRepository: "fork-user/leetdash",
+    });
+  });
+
+  it.each([
+    ["base", { base: { sha: "other-base" }, head: { sha: "head-sha" } }],
+    ["head", { base: { sha: "base-sha" }, head: { sha: "other-head" } }],
+  ])("fails closed when the pull-request %s SHA no longer matches the triggering run", async (_name, refs) => {
+    await expect(loadTrustedPullRequestScope({
+      githubClient: {
+        getPullRequest: async () => ({ number: 42, user: { login: "ada" }, ...refs }),
+        listPullRequestFiles: async () => { throw new Error("must not list mismatched PR files"); },
+      },
+      pullNumber: 42,
+      baseSha: "base-sha",
+      headSha: "head-sha",
+      catalog,
+      users,
+    })).rejects.toMatchObject({ stage: "catalog-resolve", reason: "CATALOG_MAPPING_FAILED" });
+  });
+
+  it("classifies ordinary application changes as not applicable without submission validation", async () => {
+    await expect(loadTrustedPullRequestScope({
+      githubClient: {
+        getPullRequest: async () => ({ number: 42, user: { login: "ada" }, base: { sha: "base-sha" }, head: { sha: "head-sha", repo: { full_name: "example/leetdash" } } }),
+        listPullRequestFiles: async () => [{ status: "modified", filename: "app/page.tsx" }],
+      },
+      pullNumber: 42,
+      baseSha: "base-sha",
+      headSha: "head-sha",
+      catalog,
+      users,
+    })).resolves.toEqual({
+      submissionOnly: false,
+      changedFiles: [{ status: "M", path: "app/page.tsx" }],
+      headRepository: "example/leetdash",
+    });
+  });
+});
+
 describe("defaultSourceReader", () => {
   it.each([
     ["symbolic link", () => ({ isSymbolicLink: () => true, isFile: () => true })],
@@ -451,12 +519,9 @@ describe("opencode-review CLI", () => {
   });
 
   it("reports only missing configuration names without dumping environment values", async () => {
-    const fixture = await mkdtemp(path.join(tmpdir(), "opencode-review-"));
-    const changedFiles = path.join(fixture, "changed-files.txt");
-    await writeFile(changedFiles, `A\t${firstPath}\n`);
     const secret = "environment-secret-value";
 
-    const failure = await execFileAsync(process.execPath, [scriptPath, "--changed-files", changedFiles], {
+    const failure = await execFileAsync(process.execPath, [scriptPath], {
       env: { PATH: process.env.PATH, UNRELATED_SECRET: secret },
     }).then(
       () => undefined,
@@ -466,64 +531,122 @@ describe("opencode-review CLI", () => {
     expect(failure.stderr).toContain("GITHUB_REPOSITORY");
     expect(failure.stderr).toContain("GITHUB_TOKEN");
     expect(failure.stderr).toContain("--pull-number");
+    expect(failure.stderr).toContain("--base");
     expect(failure.stderr).toContain("--head");
     expect(failure.stderr).not.toContain(secret);
   });
 
-  it("requires OpenCode configuration only for submission-only reviews", async () => {
-    const fixture = await mkdtemp(path.join(tmpdir(), "opencode-review-"));
-    const changedFiles = path.join(fixture, "changed-files.txt");
-    await writeFile(changedFiles, `A\t${firstPath}\n`);
-    const failure = await execFileAsync(process.execPath, [scriptPath, "--changed-files", changedFiles, "--submission-only", "true", "--pull-number", "42", "--head", "head-sha"], {
-      env: {
-        PATH: process.env.PATH,
-        GITHUB_REPOSITORY: "example/leetdash",
-        GITHUB_TOKEN: "github-secret",
-        GITHUB_SERVER_URL: "https://github.example",
-        GITHUB_RUN_ID: "9",
-      },
-    }).then(
-      () => undefined,
-      (error) => error,
-    );
-
-    expect(failure.stderr).toContain("OPENCODE_API_KEY");
-    expect(failure.stderr).toContain("OPENCODE_REVIEW_MODEL");
-    expect(failure.stderr).not.toContain("github-secret");
-  });
-
-  it("parses --submission-only false as not applicable without OpenCode or review calls", async () => {
-    const { options, completed } = reviewOptions({ submissionOnly: undefined });
-    let calls = 0;
-    options.leetcodeClient.getQuestion = async () => { calls += 1; };
-    options.openCodeClient.review = async () => { calls += 1; };
-    options.githubClient.upsertReviewComment = async () => { calls += 1; };
+  it("derives applicability from GitHub and reads submitted source only at the exact head SHA", async () => {
+    const checks = [];
+    const sourceReads = [];
+    const prompts = [];
+    const source = "class Solution { int fetchedAsData; }";
+    const githubClient = {
+      createCheck: async (value) => { checks.push(value); return { id: 17 }; },
+      completeCheck: async (value) => { checks.push(value); },
+      upsertReviewComment: async () => {},
+      getPullRequest: async () => ({ number: 42, user: { login: "ada" }, base: { sha: "base-sha" }, head: { sha: "head-sha", repo: { full_name: "fork-user/leetdash" } } }),
+      listPullRequestFiles: async () => [{ status: "modified", filename: firstPath }],
+      getFileContent: async (value) => { sourceReads.push(value); return source; },
+    };
 
     const outcome = await main({
-      argv: ["--base", "base", "--head", "head", "--pull-number", "42", "--submission-only", "false"],
+      argv: ["--base", "base-sha", "--head", "head-sha", "--pull-number", "42"],
+      env: {
+        GITHUB_REPOSITORY: "example/leetdash",
+        GITHUB_TOKEN: "github-secret",
+        GITHUB_SERVER_URL: "https://github.example",
+        GITHUB_RUN_ID: "9",
+        OPENCODE_API_KEY: "opencode-secret",
+        OPENCODE_REVIEW_MODEL: "opencode-go/kimi-k2.7-code",
+      },
+      githubClient,
+      leetcodeClient: { getQuestion: async () => question },
+      openCodeClient: { review: async ({ prompt }) => { prompts.push(prompt); return passResult(firstPath); } },
+      catalog,
+      users,
+    });
+
+    expect(outcome.exitCode).toBe(0);
+    expect(sourceReads).toEqual([{ path: firstPath, ref: "head-sha", repository: "fork-user/leetdash" }]);
+    expect(prompts[0]).toContain(source);
+    expect(checks[0]).toMatchObject({ headSha: "head-sha" });
+    expect(checks.at(-1)).toMatchObject({ conclusion: "success" });
+  });
+
+  it("derives not-applicable status from ordinary GitHub file data without OpenCode configuration", async () => {
+    const completed = [];
+    let reviewCalls = 0;
+    const githubClient = {
+      createCheck: async () => ({ id: 17 }),
+      completeCheck: async (value) => { completed.push(value); },
+      upsertReviewComment: async () => { reviewCalls += 1; },
+      getPullRequest: async () => ({ number: 42, user: { login: "ada" }, base: { sha: "base-sha" }, head: { sha: "head-sha", repo: { full_name: "example/leetdash" } } }),
+      listPullRequestFiles: async () => [{ status: "modified", filename: "app/page.tsx" }],
+      getFileContent: async () => { reviewCalls += 1; },
+    };
+
+    const outcome = await main({
+      argv: ["--base", "base-sha", "--head", "head-sha", "--pull-number", "42"],
       env: {
         GITHUB_REPOSITORY: "example/leetdash",
         GITHUB_TOKEN: "github-secret",
         GITHUB_SERVER_URL: "https://github.example",
         GITHUB_RUN_ID: "9",
       },
-      getChangedFiles: () => [{ status: "A", path: firstPath }],
-      githubClient: options.githubClient,
-      leetcodeClient: options.leetcodeClient,
-      openCodeClient: options.openCodeClient,
+      githubClient,
+      leetcodeClient: { getQuestion: async () => { reviewCalls += 1; } },
+      openCodeClient: { review: async () => { reviewCalls += 1; } },
       catalog,
+      users,
     });
 
     expect(outcome.exitCode).toBe(0);
     expect(completed[0].summary).toContain("not applicable");
-    expect(calls).toBe(0);
+    expect(reviewCalls).toBe(0);
   });
 
-  it("rejects missing or invalid --submission-only values without interpretation", async () => {
+  it("fails closed with a completed check when a submission review lacks OpenCode configuration", async () => {
+    const completed = [];
+    const githubClient = {
+      createCheck: async () => ({ id: 17 }),
+      completeCheck: async (value) => { completed.push(value); },
+      upsertReviewComment: async () => {},
+      getPullRequest: async () => ({ number: 42, user: { login: "ada" }, base: { sha: "base-sha" }, head: { sha: "head-sha", repo: { full_name: "example/leetdash" } } }),
+      listPullRequestFiles: async () => [{ status: "modified", filename: firstPath }],
+      getFileContent: async () => { throw new Error("source must not be fetched without review configuration"); },
+    };
+
+    const outcome = await main({
+      argv: ["--base", "base-sha", "--head", "head-sha", "--pull-number", "42"],
+      env: {
+        GITHUB_REPOSITORY: "example/leetdash",
+        GITHUB_TOKEN: "github-secret",
+        GITHUB_SERVER_URL: "https://github.example",
+        GITHUB_RUN_ID: "9",
+      },
+      githubClient,
+      leetcodeClient: { getQuestion: async () => { throw new Error("must not run"); } },
+      openCodeClient: { review: async () => { throw new Error("must not run"); } },
+      catalog,
+      users,
+    });
+
+    expect(outcome.exitCode).toBe(1);
+    expect(completed[0]).toMatchObject({ conclusion: "failure" });
+    expect(completed[0].summary).toContain("MODEL_REQUEST_FAILED");
+  });
+
+  it.each(["true", "false", "yes"])("rejects the deprecated --submission-only %s path", async (value) => {
+    let calls = 0;
     const env = { GITHUB_REPOSITORY: "example/leetdash", GITHUB_TOKEN: "github-secret", GITHUB_SERVER_URL: "https://github.example", GITHUB_RUN_ID: "9" };
 
-    await expect(main({ argv: ["--head", "head", "--pull-number", "42", "--submission-only"], env })).resolves.toMatchObject({ exitCode: 1 });
-    await expect(main({ argv: ["--head", "head", "--pull-number", "42", "--submission-only", "yes"], env })).resolves.toMatchObject({ exitCode: 1 });
+    await expect(main({
+      argv: ["--base", "base", "--head", "head", "--pull-number", "42", "--submission-only", value],
+      env,
+      githubClient: { createCheck: async () => { calls += 1; } },
+    })).resolves.toMatchObject({ exitCode: 1 });
+    expect(calls).toBe(0);
   });
 
   it.each([
@@ -533,7 +656,7 @@ describe("opencode-review CLI", () => {
     const { options, completed } = reviewOptions();
 
     const outcome = await main({
-      argv: ["--base", "base", "--head", "head", "--pull-number", "42", "--submission-only", "true"],
+      argv: ["--base", "base", "--head", "head", "--pull-number", "42"],
       env: {
         GITHUB_REPOSITORY: "example/leetdash",
         GITHUB_TOKEN: "github-secret",
@@ -542,7 +665,7 @@ describe("opencode-review CLI", () => {
         OPENCODE_API_KEY: "opencode-secret",
         OPENCODE_REVIEW_MODEL: "opencode-go/kimi-k2.7-code",
       },
-      getChangedFiles: () => [{ status: "A", path: firstPath }],
+      loadReviewScope: async () => ({ submissionOnly: true, changedFiles: [{ status: "A", path: firstPath }] }),
       githubClient: options.githubClient,
       leetcodeClient: options.leetcodeClient,
       openCodeClient,
@@ -561,7 +684,7 @@ describe("opencode-review CLI", () => {
     options.githubClient.createCheck = async () => { calls.push("check"); return { id: 17 }; };
 
     const outcome = await main({
-      argv: ["--base", "base", "--head", "head", "--pull-number", "42", "--submission-only", "true"],
+      argv: ["--base", "base", "--head", "head", "--pull-number", "42"],
       env: {
         GITHUB_REPOSITORY: "example/leetdash",
         GITHUB_TOKEN: "github-secret",
@@ -570,7 +693,7 @@ describe("opencode-review CLI", () => {
         OPENCODE_API_KEY: "opencode-secret",
         OPENCODE_REVIEW_MODEL: "opencode-go/kimi-k2.7-code",
       },
-      getChangedFiles: () => { calls.push("changed-files"); throw new Error(rawFailure); },
+      loadReviewScope: async () => { calls.push("changed-files"); throw new Error(rawFailure); },
       githubClient: options.githubClient,
       leetcodeClient: options.leetcodeClient,
       openCodeClient: options.openCodeClient,

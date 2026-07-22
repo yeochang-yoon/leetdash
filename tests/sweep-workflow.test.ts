@@ -15,6 +15,7 @@ describe("submission sweeper workflow triggers", () => {
 
   it("requires validate and OpenCode review checks through the plural configuration", () => {
     expect(workflow).toContain("SWEEP_REQUIRED_CHECKS: validate,opencode-review");
+    expect(workflow).toContain("SWEEP_REQUIRED_CHECK_APP: github-actions");
     expect(workflow).not.toContain("SWEEP_REQUIRED_CHECK:");
   });
 });

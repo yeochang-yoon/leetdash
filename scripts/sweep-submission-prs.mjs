@@ -6,6 +6,7 @@ import { isParticipantSubmissionPath, validateSubmissionFiles } from "./validate
 
 const defaultBaseBranch = "master";
 const defaultRequiredChecks = ["validate", "opencode-review"];
+const defaultRequiredCheckApp = "github-actions";
 const defaultDeployWorkflow = "deploy-pages.yml";
 
 function readJson(relativePath) {
@@ -19,10 +20,24 @@ function normalizePullRequestFile(file) {
   };
 }
 
-function hasSuccessfulCheckRun(checkRuns, checkName) {
-  return checkRuns.some(
-    (checkRun) => checkRun.name === checkName && checkRun.status === "completed" && checkRun.conclusion === "success",
-  );
+function selectLatestCheckRun(checkRuns, checkName, expectedApp) {
+  const exactNameRuns = checkRuns.filter((checkRun) => checkRun?.name === checkName);
+  if (exactNameRuns.some((checkRun) => typeof checkRun?.app?.slug !== "string")) return undefined;
+  const authoritativeRuns = exactNameRuns.filter((checkRun) => checkRun.app.slug === expectedApp);
+  if (
+    authoritativeRuns.length === 0
+    || authoritativeRuns.some((checkRun) => !Number.isSafeInteger(checkRun.id))
+  ) {
+    return undefined;
+  }
+  const latestId = Math.max(...authoritativeRuns.map((checkRun) => checkRun.id));
+  const latestRuns = authoritativeRuns.filter((checkRun) => checkRun.id === latestId);
+  return latestRuns.length === 1 ? latestRuns[0] : undefined;
+}
+
+function hasSuccessfulCheckRun(checkRuns, checkName, expectedApp) {
+  const checkRun = selectLatestCheckRun(checkRuns, checkName, expectedApp);
+  return checkRun?.status === "completed" && checkRun?.conclusion === "success";
 }
 
 function normalizeRequiredChecks(requiredChecks = defaultRequiredChecks) {
@@ -39,6 +54,7 @@ function evaluatePullRequest({
   catalog,
   baseBranch = defaultBaseBranch,
   requiredChecks = defaultRequiredChecks,
+  requiredCheckApp = defaultRequiredCheckApp,
 }) {
   if (pullRequest.base?.ref !== baseBranch) {
     return { eligible: false, reason: `base branch is ${pullRequest.base?.ref ?? "unknown"}, not ${baseBranch}.` };
@@ -63,7 +79,7 @@ function evaluatePullRequest({
   }
 
   for (const requiredCheck of normalizeRequiredChecks(requiredChecks)) {
-    if (!hasSuccessfulCheckRun(checkRuns, requiredCheck)) {
+    if (!hasSuccessfulCheckRun(checkRuns, requiredCheck, requiredCheckApp)) {
       return { eligible: false, reason: `${requiredCheck} check is not successful for ${headSha}.` };
     }
   }
@@ -194,6 +210,7 @@ async function sweepSubmissionPullRequests({
   catalog,
   baseBranch = defaultBaseBranch,
   requiredChecks = defaultRequiredChecks,
+  requiredCheckApp = defaultRequiredCheckApp,
   deployWorkflow = defaultDeployWorkflow,
 }) {
   const pullRequests = await client.listOpenPullRequests(baseBranch);
@@ -205,11 +222,37 @@ async function sweepSubmissionPullRequests({
     const pullRequest = await client.getPullRequest(pullRequestSummary.number);
     const files = await client.listPullRequestFiles(pullRequest.number);
     const checkRuns = await client.listCheckRuns(pullRequest.head.sha);
-    const decision = evaluatePullRequest({ pullRequest, files, checkRuns, users, catalog, baseBranch, requiredChecks: normalizedRequiredChecks });
+    const decision = evaluatePullRequest({
+      pullRequest,
+      files,
+      checkRuns,
+      users,
+      catalog,
+      baseBranch,
+      requiredChecks: normalizedRequiredChecks,
+      requiredCheckApp,
+    });
 
     if (!decision.eligible) {
       console.log(`#${pullRequest.number} skipped: ${decision.reason}`);
       results.push({ number: pullRequest.number, status: "skipped", reason: decision.reason });
+      continue;
+    }
+
+    const refreshedCheckRuns = await client.listCheckRuns(pullRequest.head.sha);
+    const refreshedDecision = evaluatePullRequest({
+      pullRequest,
+      files,
+      checkRuns: refreshedCheckRuns,
+      users,
+      catalog,
+      baseBranch,
+      requiredChecks: normalizedRequiredChecks,
+      requiredCheckApp,
+    });
+    if (!refreshedDecision.eligible) {
+      console.log(`#${pullRequest.number} skipped: ${refreshedDecision.reason}`);
+      results.push({ number: pullRequest.number, status: "skipped", reason: refreshedDecision.reason });
       continue;
     }
 
@@ -263,11 +306,20 @@ async function main() {
 
   const baseBranch = process.env.SWEEP_BASE_BRANCH ?? defaultBaseBranch;
   const requiredChecks = process.env.SWEEP_REQUIRED_CHECKS ?? defaultRequiredChecks;
+  const requiredCheckApp = process.env.SWEEP_REQUIRED_CHECK_APP ?? defaultRequiredCheckApp;
   const deployWorkflow = process.env.SWEEP_DEPLOY_WORKFLOW ?? defaultDeployWorkflow;
   const client = new GitHubClient({ repository, token });
   const users = readJson("data/users.json");
   const catalog = readJson("data/problem-catalog.json");
-  const result = await sweepSubmissionPullRequests({ client, users, catalog, baseBranch, requiredChecks, deployWorkflow });
+  const result = await sweepSubmissionPullRequests({
+    client,
+    users,
+    catalog,
+    baseBranch,
+    requiredChecks,
+    requiredCheckApp,
+    deployWorkflow,
+  });
   appendStepSummary(result);
 }
 
@@ -279,4 +331,4 @@ if (invokedPath === fileURLToPath(import.meta.url)) {
   });
 }
 
-export { GitHubClient, evaluatePullRequest, sweepSubmissionPullRequests };
+export { GitHubClient, evaluatePullRequest, selectLatestCheckRun, sweepSubmissionPullRequests };
