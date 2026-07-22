@@ -40,5 +40,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SWEEP_BASE_BRANCH: master
-          SWEEP_REQUIRED_CHECK: validate
+          SWEEP_REQUIRED_CHECKS: validate,opencode-review
+          SWEEP_REQUIRED_CHECK_APP: github-actions
           SWEEP_DEPLOY_WORKFLOW: deploy-pages.yml

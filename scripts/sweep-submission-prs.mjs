@@ -2,10 +2,15 @@ import { appendFileSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { isParticipantSubmissionPath, validateSubmissionFiles } from "./validate-submission-pr.mjs";
+import {
+  hasCompletePullRequestFileList,
+  isParticipantSubmissionPath,
+  validateSubmissionFiles,
+} from "./validate-submission-pr.mjs";
 
 const defaultBaseBranch = "master";
-const defaultRequiredCheck = "validate";
+const defaultRequiredChecks = ["validate", "opencode-review"];
+const defaultRequiredCheckApp = "github-actions";
 const defaultDeployWorkflow = "deploy-pages.yml";
 
 function readJson(relativePath) {
@@ -19,10 +24,30 @@ function normalizePullRequestFile(file) {
   };
 }
 
-function hasSuccessfulCheckRun(checkRuns, checkName) {
-  return checkRuns.some(
-    (checkRun) => checkRun.name === checkName && checkRun.status === "completed" && checkRun.conclusion === "success",
-  );
+function selectLatestCheckRun(checkRuns, checkName, expectedApp) {
+  const exactNameRuns = checkRuns.filter((checkRun) => checkRun?.name === checkName);
+  if (exactNameRuns.some((checkRun) => typeof checkRun?.app?.slug !== "string")) return undefined;
+  const authoritativeRuns = exactNameRuns.filter((checkRun) => checkRun.app.slug === expectedApp);
+  if (
+    authoritativeRuns.length === 0
+    || authoritativeRuns.some((checkRun) => !Number.isSafeInteger(checkRun.id))
+  ) {
+    return undefined;
+  }
+  const latestId = Math.max(...authoritativeRuns.map((checkRun) => checkRun.id));
+  const latestRuns = authoritativeRuns.filter((checkRun) => checkRun.id === latestId);
+  return latestRuns.length === 1 ? latestRuns[0] : undefined;
+}
+
+function hasSuccessfulCheckRun(checkRuns, checkName, expectedApp) {
+  const checkRun = selectLatestCheckRun(checkRuns, checkName, expectedApp);
+  return checkRun?.status === "completed" && checkRun?.conclusion === "success";
+}
+
+function normalizeRequiredChecks(requiredChecks = defaultRequiredChecks) {
+  const values = Array.isArray(requiredChecks) ? requiredChecks : [requiredChecks];
+  const normalized = values.flatMap((value) => String(value).split(",")).map((value) => value.trim()).filter(Boolean);
+  return normalized.length > 0 ? normalized : defaultRequiredChecks;
 }
 
 function evaluatePullRequest({
@@ -32,7 +57,8 @@ function evaluatePullRequest({
   users,
   catalog,
   baseBranch = defaultBaseBranch,
-  requiredCheck = defaultRequiredCheck,
+  requiredChecks = defaultRequiredChecks,
+  requiredCheckApp = defaultRequiredCheckApp,
 }) {
   if (pullRequest.base?.ref !== baseBranch) {
     return { eligible: false, reason: `base branch is ${pullRequest.base?.ref ?? "unknown"}, not ${baseBranch}.` };
@@ -52,12 +78,18 @@ function evaluatePullRequest({
     return { eligible: false, reason: "pull request head SHA is missing." };
   }
 
+  if (!hasCompletePullRequestFileList(pullRequest, files)) {
+    return { eligible: false, reason: "pull request file list is incomplete." };
+  }
+
   if (pullRequest.mergeable === false || pullRequest.mergeable_state === "dirty") {
     return { eligible: false, reason: "pull request has merge conflicts." };
   }
 
-  if (!hasSuccessfulCheckRun(checkRuns, requiredCheck)) {
-    return { eligible: false, reason: `${requiredCheck} check is not successful for ${headSha}.` };
+  for (const requiredCheck of normalizeRequiredChecks(requiredChecks)) {
+    if (!hasSuccessfulCheckRun(checkRuns, requiredCheck, requiredCheckApp)) {
+      return { eligible: false, reason: `${requiredCheck} check is not successful for ${headSha}.` };
+    }
   }
 
   if (files.length === 0) {
@@ -130,11 +162,11 @@ class GitHubClient {
     }
   }
 
-  async paginateCheckRuns(sha, checkName) {
+  async paginateCheckRuns(sha) {
     const items = [];
     for (let page = 1; ; page += 1) {
       const pageResult = await this.request("GET", `/commits/${sha}/check-runs`, {
-        params: { check_name: checkName, page, per_page: 100 },
+        params: { page, per_page: 100 },
       });
       items.push(...pageResult.check_runs);
       if (pageResult.check_runs.length < 100) {
@@ -160,8 +192,8 @@ class GitHubClient {
     return this.paginateArray(`/pulls/${number}/files`);
   }
 
-  listCheckRuns(sha, checkName) {
-    return this.paginateCheckRuns(sha, checkName);
+  listCheckRuns(sha) {
+    return this.paginateCheckRuns(sha);
   }
 
   mergePullRequest(number, sha) {
@@ -185,18 +217,29 @@ async function sweepSubmissionPullRequests({
   users,
   catalog,
   baseBranch = defaultBaseBranch,
-  requiredCheck = defaultRequiredCheck,
+  requiredChecks = defaultRequiredChecks,
+  requiredCheckApp = defaultRequiredCheckApp,
   deployWorkflow = defaultDeployWorkflow,
 }) {
   const pullRequests = await client.listOpenPullRequests(baseBranch);
+  const normalizedRequiredChecks = normalizeRequiredChecks(requiredChecks);
   const results = [];
   let mergedCount = 0;
 
   for (const pullRequestSummary of pullRequests) {
     const pullRequest = await client.getPullRequest(pullRequestSummary.number);
     const files = await client.listPullRequestFiles(pullRequest.number);
-    const checkRuns = await client.listCheckRuns(pullRequest.head.sha, requiredCheck);
-    const decision = evaluatePullRequest({ pullRequest, files, checkRuns, users, catalog, baseBranch, requiredCheck });
+    const checkRuns = await client.listCheckRuns(pullRequest.head.sha);
+    const decision = evaluatePullRequest({
+      pullRequest,
+      files,
+      checkRuns,
+      users,
+      catalog,
+      baseBranch,
+      requiredChecks: normalizedRequiredChecks,
+      requiredCheckApp,
+    });
 
     if (!decision.eligible) {
       console.log(`#${pullRequest.number} skipped: ${decision.reason}`);
@@ -204,15 +247,35 @@ async function sweepSubmissionPullRequests({
       continue;
     }
 
+    const refreshedPullRequest = await client.getPullRequest(pullRequestSummary.number);
+    const refreshedFiles = await client.listPullRequestFiles(pullRequestSummary.number);
+    const refreshedHeadSha = refreshedPullRequest?.head?.sha;
+    const refreshedCheckRuns = refreshedHeadSha ? await client.listCheckRuns(refreshedHeadSha) : [];
+    const refreshedDecision = evaluatePullRequest({
+      pullRequest: refreshedPullRequest,
+      files: refreshedFiles,
+      checkRuns: refreshedCheckRuns,
+      users,
+      catalog,
+      baseBranch,
+      requiredChecks: normalizedRequiredChecks,
+      requiredCheckApp,
+    });
+    if (!refreshedDecision.eligible) {
+      console.log(`#${pullRequest.number} skipped: ${refreshedDecision.reason}`);
+      results.push({ number: pullRequest.number, status: "skipped", reason: refreshedDecision.reason });
+      continue;
+    }
+
     try {
-      await client.mergePullRequest(pullRequest.number, pullRequest.head.sha);
-      console.log(`#${pullRequest.number} merged.`);
+      await client.mergePullRequest(pullRequestSummary.number, refreshedHeadSha);
+      console.log(`#${pullRequestSummary.number} merged.`);
       mergedCount += 1;
-      results.push({ number: pullRequest.number, status: "merged" });
+      results.push({ number: pullRequestSummary.number, status: "merged" });
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
-      console.log(`#${pullRequest.number} merge failed: ${reason}`);
-      results.push({ number: pullRequest.number, status: "merge_failed", reason });
+      console.log(`#${pullRequestSummary.number} merge failed: ${reason}`);
+      results.push({ number: pullRequestSummary.number, status: "merge_failed", reason });
     }
   }
 
@@ -253,12 +316,21 @@ async function main() {
   }
 
   const baseBranch = process.env.SWEEP_BASE_BRANCH ?? defaultBaseBranch;
-  const requiredCheck = process.env.SWEEP_REQUIRED_CHECK ?? defaultRequiredCheck;
+  const requiredChecks = process.env.SWEEP_REQUIRED_CHECKS ?? defaultRequiredChecks;
+  const requiredCheckApp = process.env.SWEEP_REQUIRED_CHECK_APP ?? defaultRequiredCheckApp;
   const deployWorkflow = process.env.SWEEP_DEPLOY_WORKFLOW ?? defaultDeployWorkflow;
   const client = new GitHubClient({ repository, token });
   const users = readJson("data/users.json");
   const catalog = readJson("data/problem-catalog.json");
-  const result = await sweepSubmissionPullRequests({ client, users, catalog, baseBranch, requiredCheck, deployWorkflow });
+  const result = await sweepSubmissionPullRequests({
+    client,
+    users,
+    catalog,
+    baseBranch,
+    requiredChecks,
+    requiredCheckApp,
+    deployWorkflow,
+  });
   appendStepSummary(result);
 }
 
@@ -270,4 +342,4 @@ if (invokedPath === fileURLToPath(import.meta.url)) {
   });
 }
 
-export { GitHubClient, evaluatePullRequest, sweepSubmissionPullRequests };
+export { GitHubClient, evaluatePullRequest, selectLatestCheckRun, sweepSubmissionPullRequests };

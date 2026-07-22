@@ -11,3 +11,14 @@ describe("deploy workflow triggers", () => {
     expect(workflow).toContain("deploy:\n    if: github.event_name != 'pull_request'");
   });
 });
+
+describe("OpenCode submission review isolation", () => {
+  it("keeps secret-bearing review execution out of the pull_request workflow", () => {
+    expect(workflow).not.toContain("review-submission:");
+    expect(workflow).not.toContain("node scripts/opencode-review.mjs");
+    expect(workflow).not.toContain("OPENCODE_API_KEY");
+    expect(workflow).not.toContain("OPENCODE_REVIEW_MODEL");
+    expect(workflow).not.toContain("checks: write");
+    expect(workflow).not.toContain("pull-requests: write");
+  });
+});
