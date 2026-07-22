@@ -12,4 +12,9 @@ describe("submission sweeper workflow triggers", () => {
     expect(workflow).toContain('cron: "17 * * * *"');
     expect(workflow).toContain("workflow_dispatch:");
   });
+
+  it("requires validate and OpenCode review checks through the plural configuration", () => {
+    expect(workflow).toContain("SWEEP_REQUIRED_CHECKS: validate,opencode-review");
+    expect(workflow).not.toContain("SWEEP_REQUIRED_CHECK:");
+  });
 });

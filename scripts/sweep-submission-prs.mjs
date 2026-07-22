@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { isParticipantSubmissionPath, validateSubmissionFiles } from "./validate-submission-pr.mjs";
 
 const defaultBaseBranch = "master";
-const defaultRequiredCheck = "validate";
+const defaultRequiredChecks = ["validate", "opencode-review"];
 const defaultDeployWorkflow = "deploy-pages.yml";
 
 function readJson(relativePath) {
@@ -25,6 +25,12 @@ function hasSuccessfulCheckRun(checkRuns, checkName) {
   );
 }
 
+function normalizeRequiredChecks(requiredChecks = defaultRequiredChecks) {
+  const values = Array.isArray(requiredChecks) ? requiredChecks : [requiredChecks];
+  const normalized = values.flatMap((value) => String(value).split(",")).map((value) => value.trim()).filter(Boolean);
+  return normalized.length > 0 ? normalized : defaultRequiredChecks;
+}
+
 function evaluatePullRequest({
   pullRequest,
   files,
@@ -32,7 +38,7 @@ function evaluatePullRequest({
   users,
   catalog,
   baseBranch = defaultBaseBranch,
-  requiredCheck = defaultRequiredCheck,
+  requiredChecks = defaultRequiredChecks,
 }) {
   if (pullRequest.base?.ref !== baseBranch) {
     return { eligible: false, reason: `base branch is ${pullRequest.base?.ref ?? "unknown"}, not ${baseBranch}.` };
@@ -56,8 +62,10 @@ function evaluatePullRequest({
     return { eligible: false, reason: "pull request has merge conflicts." };
   }
 
-  if (!hasSuccessfulCheckRun(checkRuns, requiredCheck)) {
-    return { eligible: false, reason: `${requiredCheck} check is not successful for ${headSha}.` };
+  for (const requiredCheck of normalizeRequiredChecks(requiredChecks)) {
+    if (!hasSuccessfulCheckRun(checkRuns, requiredCheck)) {
+      return { eligible: false, reason: `${requiredCheck} check is not successful for ${headSha}.` };
+    }
   }
 
   if (files.length === 0) {
@@ -130,11 +138,11 @@ class GitHubClient {
     }
   }
 
-  async paginateCheckRuns(sha, checkName) {
+  async paginateCheckRuns(sha) {
     const items = [];
     for (let page = 1; ; page += 1) {
       const pageResult = await this.request("GET", `/commits/${sha}/check-runs`, {
-        params: { check_name: checkName, page, per_page: 100 },
+        params: { page, per_page: 100 },
       });
       items.push(...pageResult.check_runs);
       if (pageResult.check_runs.length < 100) {
@@ -160,8 +168,8 @@ class GitHubClient {
     return this.paginateArray(`/pulls/${number}/files`);
   }
 
-  listCheckRuns(sha, checkName) {
-    return this.paginateCheckRuns(sha, checkName);
+  listCheckRuns(sha) {
+    return this.paginateCheckRuns(sha);
   }
 
   mergePullRequest(number, sha) {
@@ -185,18 +193,19 @@ async function sweepSubmissionPullRequests({
   users,
   catalog,
   baseBranch = defaultBaseBranch,
-  requiredCheck = defaultRequiredCheck,
+  requiredChecks = defaultRequiredChecks,
   deployWorkflow = defaultDeployWorkflow,
 }) {
   const pullRequests = await client.listOpenPullRequests(baseBranch);
+  const normalizedRequiredChecks = normalizeRequiredChecks(requiredChecks);
   const results = [];
   let mergedCount = 0;
 
   for (const pullRequestSummary of pullRequests) {
     const pullRequest = await client.getPullRequest(pullRequestSummary.number);
     const files = await client.listPullRequestFiles(pullRequest.number);
-    const checkRuns = await client.listCheckRuns(pullRequest.head.sha, requiredCheck);
-    const decision = evaluatePullRequest({ pullRequest, files, checkRuns, users, catalog, baseBranch, requiredCheck });
+    const checkRuns = await client.listCheckRuns(pullRequest.head.sha);
+    const decision = evaluatePullRequest({ pullRequest, files, checkRuns, users, catalog, baseBranch, requiredChecks: normalizedRequiredChecks });
 
     if (!decision.eligible) {
       console.log(`#${pullRequest.number} skipped: ${decision.reason}`);
@@ -253,12 +262,12 @@ async function main() {
   }
 
   const baseBranch = process.env.SWEEP_BASE_BRANCH ?? defaultBaseBranch;
-  const requiredCheck = process.env.SWEEP_REQUIRED_CHECK ?? defaultRequiredCheck;
+  const requiredChecks = process.env.SWEEP_REQUIRED_CHECKS ?? defaultRequiredChecks;
   const deployWorkflow = process.env.SWEEP_DEPLOY_WORKFLOW ?? defaultDeployWorkflow;
   const client = new GitHubClient({ repository, token });
   const users = readJson("data/users.json");
   const catalog = readJson("data/problem-catalog.json");
-  const result = await sweepSubmissionPullRequests({ client, users, catalog, baseBranch, requiredCheck, deployWorkflow });
+  const result = await sweepSubmissionPullRequests({ client, users, catalog, baseBranch, requiredChecks, deployWorkflow });
   appendStepSummary(result);
 }
 

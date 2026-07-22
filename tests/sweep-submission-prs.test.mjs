@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { evaluatePullRequest, sweepSubmissionPullRequests } from "../scripts/sweep-submission-prs.mjs";
+import { GitHubClient, evaluatePullRequest, sweepSubmissionPullRequests } from "../scripts/sweep-submission-prs.mjs";
 
 const validFile = {
   filename: "submissions/ada/top-interview-easy/1/Solution.java",
@@ -15,7 +15,10 @@ const catalog = {
   lists: [{ key: "top-interview-easy", items: [{ slug: "two-sum", submissionKey: "1" }] }],
 };
 
-const successfulValidateCheck = { name: "validate", status: "completed", conclusion: "success" };
+const successfulChecks = [
+  { name: "validate", status: "completed", conclusion: "success" },
+  { name: "opencode-review", status: "completed", conclusion: "success" },
+];
 
 function makePullRequest(overrides = {}) {
   return {
@@ -30,11 +33,11 @@ function makePullRequest(overrides = {}) {
 }
 
 describe("submission PR sweeper eligibility", () => {
-  it("marks an author-owned submission PR with a successful validate check as eligible", () => {
+  it("marks an author-owned submission PR with successful required checks as eligible", () => {
     const decision = evaluatePullRequest({
       pullRequest: makePullRequest(),
       files: [validFile],
-      checkRuns: [successfulValidateCheck],
+      checkRuns: successfulChecks,
       users,
       catalog,
     });
@@ -46,7 +49,7 @@ describe("submission PR sweeper eligibility", () => {
     const decision = evaluatePullRequest({
       pullRequest: makePullRequest(),
       files: [{ filename: "submissions/grace/top-interview-easy/1/Solution.java", status: "modified" }],
-      checkRuns: [successfulValidateCheck],
+      checkRuns: successfulChecks,
       users,
       catalog,
     });
@@ -61,7 +64,7 @@ describe("submission PR sweeper eligibility", () => {
     const decision = evaluatePullRequest({
       pullRequest: makePullRequest(),
       files: [{ ...validFile, status: "removed" }],
-      checkRuns: [successfulValidateCheck],
+      checkRuns: successfulChecks,
       users,
       catalog,
     });
@@ -76,7 +79,7 @@ describe("submission PR sweeper eligibility", () => {
     const decision = evaluatePullRequest({
       pullRequest: makePullRequest(),
       files: [{ ...validFile, status: "renamed", previous_filename: "submissions/ada/top-interview-easy/1/solution.jvaa" }],
-      checkRuns: [successfulValidateCheck],
+      checkRuns: successfulChecks,
       users,
       catalog,
     });
@@ -99,11 +102,60 @@ describe("submission PR sweeper eligibility", () => {
     expect(decision).toEqual({ eligible: false, reason: "validate check is not successful for abc123." });
   });
 
+  it("requires an opencode-review check", () => {
+    const decision = evaluatePullRequest({
+      pullRequest: makePullRequest(),
+      files: [validFile],
+      checkRuns: [successfulChecks[0]],
+      users,
+      catalog,
+    });
+
+    expect(decision).toEqual({ eligible: false, reason: "opencode-review check is not successful for abc123." });
+  });
+
+  it("requires the opencode-review check to complete successfully", () => {
+    const decision = evaluatePullRequest({
+      pullRequest: makePullRequest(),
+      files: [validFile],
+      checkRuns: [successfulChecks[0], { name: "opencode-review", status: "in_progress", conclusion: null }],
+      users,
+      catalog,
+    });
+
+    expect(decision).toEqual({ eligible: false, reason: "opencode-review check is not successful for abc123." });
+  });
+
+  it("rejects a failed opencode-review check", () => {
+    const decision = evaluatePullRequest({
+      pullRequest: makePullRequest(),
+      files: [validFile],
+      checkRuns: [successfulChecks[0], { name: "opencode-review", status: "completed", conclusion: "failure" }],
+      users,
+      catalog,
+    });
+
+    expect(decision).toEqual({ eligible: false, reason: "opencode-review check is not successful for abc123." });
+  });
+
+  it("normalizes comma-separated required check names while preserving their order", () => {
+    const decision = evaluatePullRequest({
+      pullRequest: makePullRequest(),
+      files: [validFile],
+      checkRuns: [successfulChecks[1]],
+      users,
+      catalog,
+      requiredChecks: " opencode-review, , ",
+    });
+
+    expect(decision).toEqual({ eligible: true });
+  });
+
   it("skips draft pull requests", () => {
     const decision = evaluatePullRequest({
       pullRequest: makePullRequest({ draft: true }),
       files: [validFile],
-      checkRuns: [successfulValidateCheck],
+      checkRuns: successfulChecks,
       users,
       catalog,
     });
@@ -135,6 +187,8 @@ class FakeGitHubClient {
   }
 
   async listCheckRuns(sha) {
+    this.checkRunCalls ??= [];
+    this.checkRunCalls.push(sha);
     return this.checkRunsBySha[sha] ?? [];
   }
 
@@ -155,13 +209,14 @@ describe("submission PR sweeper orchestration", () => {
     const client = new FakeGitHubClient({
       pullRequests: [makePullRequest({ number: 7, head: { sha: "sha-7" } })],
       filesByNumber: { 7: [validFile] },
-      checkRunsBySha: { "sha-7": [successfulValidateCheck] },
+      checkRunsBySha: { "sha-7": successfulChecks },
     });
 
     const result = await sweepSubmissionPullRequests({ client, users, catalog });
 
     expect(result.mergedCount).toBe(1);
     expect(client.mergeCalls).toEqual([{ number: 7, sha: "sha-7" }]);
+    expect(client.checkRunCalls).toEqual(["sha-7"]);
     expect(client.dispatchCalls).toEqual([{ workflowFile: "deploy-pages.yml", ref: "master" }]);
   });
 
@@ -171,7 +226,7 @@ describe("submission PR sweeper orchestration", () => {
     const client = new FakeGitHubClient({
       pullRequests: [firstPullRequest, secondPullRequest],
       filesByNumber: { 7: [validFile], 8: [validFile] },
-      checkRunsBySha: { "sha-7": [successfulValidateCheck], "sha-8": [successfulValidateCheck] },
+      checkRunsBySha: { "sha-7": successfulChecks, "sha-8": successfulChecks },
       failedMerges: new Set([7]),
     });
 
@@ -201,5 +256,27 @@ describe("submission PR sweeper orchestration", () => {
     expect(result.mergedCount).toBe(0);
     expect(client.mergeCalls).toEqual([]);
     expect(client.dispatchCalls).toEqual([]);
+  });
+});
+
+describe("GitHubClient check-run retrieval", () => {
+  it("fetches all check runs once from the exact head SHA without filtering by name", async () => {
+    const originalFetch = globalThis.fetch;
+    const requests = [];
+    globalThis.fetch = async (url) => {
+      requests.push(new URL(url));
+      return new Response(JSON.stringify({ check_runs: successfulChecks }), { status: 200 });
+    };
+
+    try {
+      const client = new GitHubClient({ repository: "leetdash/test", token: "test-token" });
+      await expect(client.listCheckRuns("abc123")).resolves.toEqual(successfulChecks);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0].pathname).toBe("/repos/leetdash/test/commits/abc123/check-runs");
+    expect(requests[0].searchParams.get("check_name")).toBeNull();
   });
 });
