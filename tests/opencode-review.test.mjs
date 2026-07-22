@@ -1,12 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { execFile } from "node:child_process";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
 const { defaultSourceReader, main, reviewPullRequest } = await import("../scripts/opencode-review.mjs");
-const { GitHubDeliveryFailure } = await import("../scripts/opencode-review-clients.mjs");
+const { GitHubDeliveryFailure, LeetCodeClient, OpenCodeClient } = await import("../scripts/opencode-review-clients.mjs");
 const { ReviewFailure } = await import("../scripts/opencode-review-core.mjs");
 const { isSubmissionArtifactName } = await import("../scripts/validate-submission-pr.mjs");
 const execFileAsync = promisify(execFile);
@@ -166,6 +166,52 @@ describe("reviewPullRequest", () => {
     expect(result.failure).toMatchObject({ stage: "model-response", reason: "MODEL_RESPONSE_INVALID" });
     expect(completed[0].summary).not.toContain(rawModelOutput);
     expect(comments[0].body).not.toContain(rawModelOutput);
+  });
+
+  it("keeps redaction sentinels out of logs, comments, checks, summaries, and safe failure details", async () => {
+    const sentinels = {
+      apiKey: "secret-api-key",
+      authorization: "Bearer secret-token",
+      modelBody: "raw-model-body",
+      graphqlBody: "raw-graphql-body",
+      source: "submitted-source-sentinel",
+    };
+    const summaryPath = path.join(await mkdtemp(path.join(tmpdir(), "opencode-review-")), "summary.md");
+    const { options, comments } = reviewOptions({
+      apiKey: sentinels.apiKey,
+      summaryPath,
+      readFile: async () => sentinels.source,
+      openCodeClient: {
+        review: async () => JSON.stringify({ ...JSON.parse(passResult(firstPath)), summary: sentinels.source }),
+      },
+    });
+    const checks = [];
+    options.githubClient.createCheck = async (value) => { checks.push(value); return { id: 17 }; };
+    options.githubClient.completeCheck = async (value) => { checks.push(value); };
+    const safeDetails = [];
+    const logSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    try {
+      await new OpenCodeClient({
+        fetchImpl: async () => { throw new Error(`${sentinels.authorization} ${sentinels.modelBody}`); },
+      }).review({ model: "opencode-go/kimi-k2.7-code", apiKey: sentinels.apiKey, prompt: "review" }).catch((error) => safeDetails.push(error.detail));
+      await new LeetCodeClient({
+        fetchImpl: async () => ({ ok: false, status: 503, json: async () => ({ error: sentinels.graphqlBody }) }),
+      }).getQuestion("two-sum").catch((error) => safeDetails.push(error.detail));
+      await reviewPullRequest(options);
+
+      const captured = [
+        ...logSpy.mock.calls.flat(),
+        ...comments.map(({ body }) => body),
+        ...checks.flatMap((check) => [check.title, check.summary]),
+        await readFile(summaryPath, "utf8"),
+        ...safeDetails,
+      ].filter((value) => value !== undefined).join("\n");
+
+      Object.values(sentinels).forEach((sentinel) => expect(captured).not.toContain(sentinel));
+    } finally {
+      logSpy.mockRestore();
+    }
   });
 
   it("turns invalid review invariants into a result-validation failure", async () => {

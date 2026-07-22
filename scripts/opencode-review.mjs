@@ -115,6 +115,11 @@ function notApplicableMarkdown() {
   return "OpenCode submission review is not applicable to this pull request.";
 }
 
+function redactSubmittedSource(markdown, source) {
+  if (typeof source !== "string" || source.length === 0) return markdown;
+  return markdown.split(source).join("[submitted source redacted]");
+}
+
 async function reviewPullRequest({
   githubClient,
   leetcodeClient,
@@ -138,6 +143,7 @@ async function reviewPullRequest({
     summary: "Submission review is running.",
   });
   const questions = new Map();
+  const submittedSources = [];
   const results = [];
   let stage = "catalog-resolve";
   let failure;
@@ -171,6 +177,7 @@ async function reviewPullRequest({
           stage = "catalog-resolve";
           const resolved = resolveCatalogProblem(file.path, activeCatalog);
           const source = await readSource(resolved.path);
+          submittedSources.push(source);
           stage = "problem-fetch";
           if (!questions.has(resolved.slug)) questions.set(resolved.slug, leetcodeClient.getQuestion(resolved.slug));
           const rawQuestion = await questions.get(resolved.slug);
@@ -183,7 +190,10 @@ async function reviewPullRequest({
           results.push(parseReviewResult(raw, resolved.path));
         }
         conclusion = results.every((result) => result.verdict === "PASS") ? "success" : "failure";
-        markdown = renderReviewComment({ headSha, results, runUrl });
+        markdown = submittedSources.reduce(
+          (rendered, source) => redactSubmittedSource(rendered, source),
+          renderReviewComment({ headSha, results, runUrl }),
+        );
       }
     }
   } catch (error) {
