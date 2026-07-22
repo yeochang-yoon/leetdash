@@ -16,6 +16,7 @@ import { getChangedFiles, isSubmissionArtifactName } from "./validate-submission
 
 const solutionName = /^solution\.[^.\/]+$/i;
 const deliveryDiagnostic = "Comment delivery: GitHub review comment delivery failed.";
+const embeddedSourceRedactionMinimumLength = 16;
 
 const safeFailures = Object.freeze({
   "catalog-resolve": ["CATALOG_MAPPING_FAILED", "Submission review paths could not be resolved."],
@@ -115,43 +116,41 @@ function notApplicableMarkdown() {
   return "OpenCode submission review is not applicable to this pull request.";
 }
 
-function redactModelText(value, sources) {
+function redactModelText(value, source) {
   if (typeof value !== "string") return value;
-  return sources.reduce(
-    (redacted, source) => typeof source === "string" && source.length > 0
-      ? redacted.split(source).join("[submitted source redacted]")
-      : redacted,
-    value,
-  );
+  if (typeof source !== "string" || source.trim().length === 0) return value;
+  if (value === source) return "[submitted source redacted]";
+  if (source.trim().length < embeddedSourceRedactionMinimumLength) return value;
+  return value.split(source).join("[submitted source redacted]");
 }
 
-function redactReviewResult(result, sources) {
+function redactReviewResult(result, source) {
   return {
     ...result,
-    summary: redactModelText(result.summary, sources),
+    summary: redactModelText(result.summary, source),
     correctness: {
       ...result.correctness,
-      reason: redactModelText(result.correctness.reason, sources),
+      reason: redactModelText(result.correctness.reason, source),
     },
     complexity: {
       ...result.complexity,
-      time: redactModelText(result.complexity.time, sources),
-      space: redactModelText(result.complexity.space, sources),
-      reason: redactModelText(result.complexity.reason, sources),
+      time: redactModelText(result.complexity.time, source),
+      space: redactModelText(result.complexity.space, source),
+      reason: redactModelText(result.complexity.reason, source),
     },
     blocking_findings: result.blocking_findings.map((finding) => ({
       ...finding,
-      reason: redactModelText(finding.reason, sources),
-      evidence: redactModelText(finding.evidence, sources),
+      reason: redactModelText(finding.reason, source),
+      evidence: redactModelText(finding.evidence, source),
       counterexample: {
-        input: redactModelText(finding.counterexample.input, sources),
-        expected: redactModelText(finding.counterexample.expected, sources),
-        actual: redactModelText(finding.counterexample.actual, sources),
+        input: redactModelText(finding.counterexample.input, source),
+        expected: redactModelText(finding.counterexample.expected, source),
+        actual: redactModelText(finding.counterexample.actual, source),
       },
     })),
     non_blocking_suggestions: result.non_blocking_suggestions.map((suggestion) => ({
       ...suggestion,
-      suggestion: redactModelText(suggestion.suggestion, sources),
+      suggestion: redactModelText(suggestion.suggestion, source),
     })),
   };
 }
@@ -179,7 +178,7 @@ async function reviewPullRequest({
     summary: "Submission review is running.",
   });
   const questions = new Map();
-  const submittedSources = [];
+  const reviewedResults = [];
   const results = [];
   let stage = "catalog-resolve";
   let failure;
@@ -213,7 +212,6 @@ async function reviewPullRequest({
           stage = "catalog-resolve";
           const resolved = resolveCatalogProblem(file.path, activeCatalog);
           const source = await readSource(resolved.path);
-          submittedSources.push(source);
           stage = "problem-fetch";
           if (!questions.has(resolved.slug)) questions.set(resolved.slug, leetcodeClient.getQuestion(resolved.slug));
           const rawQuestion = await questions.get(resolved.slug);
@@ -223,10 +221,10 @@ async function reviewPullRequest({
           stage = "model-request";
           const raw = await openCodeClient.review({ model, apiKey, prompt });
           stage = "model-response";
-          results.push(parseReviewResult(raw, resolved.path));
+          reviewedResults.push({ result: parseReviewResult(raw, resolved.path), source });
         }
+        results.push(...reviewedResults.map(({ result, source }) => redactReviewResult(result, source)));
         conclusion = results.every((result) => result.verdict === "PASS") ? "success" : "failure";
-        results.splice(0, results.length, ...results.map((result) => redactReviewResult(result, submittedSources)));
         markdown = renderReviewComment({ headSha, results, runUrl });
       }
     }

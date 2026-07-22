@@ -200,6 +200,39 @@ describe("reviewPullRequest", () => {
     expect(output).toContain("https://github.example/actions/runs/9");
   });
 
+  it("pairs each parsed review with only its own submitted source", async () => {
+    const sources = new Map([[firstPath, "e"], [secondPath, "class Solution {}"]]);
+    const firstResult = { ...JSON.parse(passResult(firstPath)), summary: "e" };
+    const secondResult = { ...JSON.parse(passResult(secondPath)), summary: "Every edge case is handled." };
+    const responses = [firstResult, secondResult];
+    const { options, comments, completed } = reviewOptions({
+      changedFiles: [{ status: "A", path: firstPath }, { status: "M", path: secondPath }],
+      readFile: async (filePath) => sources.get(filePath),
+      openCodeClient: { review: async () => JSON.stringify(responses.shift()) },
+    });
+
+    const result = await reviewPullRequest(options);
+    const output = [comments[0].body, completed[0].summary].join("\n");
+
+    expect(result.results.map(({ summary }) => summary)).toEqual(["[submitted source redacted]", secondResult.summary]);
+    expect(output).toContain(`Summary: ${secondResult.summary}`);
+  });
+
+  it.each([
+    ["e", "Every edge case is handled."],
+    [" ", "Every edge case is handled."],
+  ])("does not redact embedded text for a trivial or whitespace-only source %j", async (source, summary) => {
+    const { options, comments, completed } = reviewOptions({
+      readFile: async () => source,
+      openCodeClient: { review: async () => JSON.stringify({ ...JSON.parse(passResult(firstPath)), summary }) },
+    });
+
+    const result = await reviewPullRequest(options);
+    const output = [result.markdown, comments[0].body, completed[0].summary].join("\n");
+
+    expect(output).toContain(`Summary: ${summary}`);
+  });
+
   it("keeps every redaction sentinel out of managed outputs on real client-to-orchestrator paths", async () => {
     const sentinels = {
       apiKey: "secret-api-key",
