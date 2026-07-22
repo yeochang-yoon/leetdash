@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-const { reviewPullRequest } = await import("../scripts/opencode-review.mjs");
+const { defaultSourceReader, main, reviewPullRequest } = await import("../scripts/opencode-review.mjs");
 const { GitHubDeliveryFailure } = await import("../scripts/opencode-review-clients.mjs");
 const { ReviewFailure } = await import("../scripts/opencode-review-core.mjs");
 const { isSubmissionArtifactName } = await import("../scripts/validate-submission-pr.mjs");
@@ -227,6 +227,75 @@ describe("reviewPullRequest", () => {
     expect(completed[0].conclusion).toBe("success");
     expect(comments[0].body).toContain("No changed solution.* files require review.");
   });
+
+  it("completes the check when changed-file input is malformed", async () => {
+    const { options, completed } = reviewOptions({ changedFiles: [null] });
+
+    const result = await reviewPullRequest(options);
+
+    expect(result.failure).toMatchObject({ stage: "catalog-resolve", reason: "CATALOG_MAPPING_FAILED" });
+    expect(completed[0].conclusion).toBe("failure");
+  });
+
+  it("creates a check before lazily loading a malformed catalog and completes the failure", async () => {
+    const calls = [];
+    const { options, completed } = reviewOptions({
+      catalog: undefined,
+      loadCatalog: async () => { calls.push("catalog"); throw new SyntaxError("raw catalog contents"); },
+    });
+    options.githubClient.createCheck = async () => { calls.push("check"); return { id: 17 }; };
+
+    const result = await reviewPullRequest(options);
+
+    expect(calls).toEqual(["check", "catalog"]);
+    expect(result.failure).toMatchObject({ stage: "catalog-resolve", reason: "CATALOG_MAPPING_FAILED" });
+    expect(completed[0].conclusion).toBe("failure");
+    expect(completed[0].summary).not.toContain("raw catalog contents");
+  });
+});
+
+describe("defaultSourceReader", () => {
+  it.each([
+    ["symbolic link", () => ({ isSymbolicLink: () => true, isFile: () => true })],
+    ["non-file", () => ({ isSymbolicLink: () => false, isFile: () => false })],
+  ])("rejects a %s before invoking the source read callback", async (_name, makeStats) => {
+    let reads = 0;
+
+    await expect(defaultSourceReader("submissions/ada/top-interview-easy/1/solution.java", {
+      checkoutRoot: "C:\\checkout",
+      lstat: async () => makeStats(),
+      readFile: async () => { reads += 1; return "source"; },
+    })).rejects.toMatchObject({ stage: "catalog-resolve", reason: "CATALOG_MAPPING_FAILED" });
+
+    expect(reads).toBe(0);
+  });
+
+  it("rejects a checkout-escaping path before invoking filesystem callbacks", async () => {
+    let stats = 0;
+    let reads = 0;
+
+    await expect(defaultSourceReader("../outside/solution.java", {
+      checkoutRoot: "C:\\checkout",
+      lstat: async () => { stats += 1; return { isSymbolicLink: () => false, isFile: () => true }; },
+      readFile: async () => { reads += 1; return "source"; },
+    })).rejects.toMatchObject({ stage: "catalog-resolve", reason: "CATALOG_MAPPING_FAILED" });
+
+    expect(stats).toBe(0);
+    expect(reads).toBe(0);
+  });
+
+  it("reads an in-root regular source file as UTF-8", async () => {
+    const reads = [];
+
+    await expect(defaultSourceReader("submissions/ada/top-interview-easy/1/solution.java", {
+      checkoutRoot: "C:\\checkout",
+      lstat: async () => ({ isSymbolicLink: () => false, isFile: () => true }),
+      readFile: async (...args) => { reads.push(args); return "class Solution {}"; },
+    })).resolves.toBe("class Solution {}");
+
+    expect(reads).toHaveLength(1);
+    expect(reads[0][1]).toBe("utf8");
+  });
 });
 
 describe("opencode-review CLI", () => {
@@ -260,7 +329,7 @@ describe("opencode-review CLI", () => {
     const fixture = await mkdtemp(path.join(tmpdir(), "opencode-review-"));
     const changedFiles = path.join(fixture, "changed-files.txt");
     await writeFile(changedFiles, `A\t${firstPath}\n`);
-    const failure = await execFileAsync(process.execPath, [scriptPath, "--changed-files", changedFiles, "--submission-only", "--pull-number", "42", "--head", "head-sha"], {
+    const failure = await execFileAsync(process.execPath, [scriptPath, "--changed-files", changedFiles, "--submission-only", "true", "--pull-number", "42", "--head", "head-sha"], {
       env: {
         PATH: process.env.PATH,
         GITHUB_REPOSITORY: "example/leetdash",
@@ -276,5 +345,67 @@ describe("opencode-review CLI", () => {
     expect(failure.stderr).toContain("OPENCODE_API_KEY");
     expect(failure.stderr).toContain("OPENCODE_REVIEW_MODEL");
     expect(failure.stderr).not.toContain("github-secret");
+  });
+
+  it("parses --submission-only false as not applicable without OpenCode or review calls", async () => {
+    const { options, completed } = reviewOptions({ submissionOnly: undefined });
+    let calls = 0;
+    options.leetcodeClient.getQuestion = async () => { calls += 1; };
+    options.openCodeClient.review = async () => { calls += 1; };
+    options.githubClient.upsertReviewComment = async () => { calls += 1; };
+
+    const outcome = await main({
+      argv: ["--base", "base", "--head", "head", "--pull-number", "42", "--submission-only", "false"],
+      env: {
+        GITHUB_REPOSITORY: "example/leetdash",
+        GITHUB_TOKEN: "github-secret",
+        GITHUB_SERVER_URL: "https://github.example",
+        GITHUB_RUN_ID: "9",
+      },
+      getChangedFiles: () => [{ status: "A", path: firstPath }],
+      githubClient: options.githubClient,
+      leetcodeClient: options.leetcodeClient,
+      openCodeClient: options.openCodeClient,
+      catalog,
+    });
+
+    expect(outcome.exitCode).toBe(0);
+    expect(completed[0].summary).toContain("not applicable");
+    expect(calls).toBe(0);
+  });
+
+  it("rejects missing or invalid --submission-only values without interpretation", async () => {
+    const env = { GITHUB_REPOSITORY: "example/leetdash", GITHUB_TOKEN: "github-secret", GITHUB_SERVER_URL: "https://github.example", GITHUB_RUN_ID: "9" };
+
+    await expect(main({ argv: ["--head", "head", "--pull-number", "42", "--submission-only"], env })).resolves.toMatchObject({ exitCode: 1 });
+    await expect(main({ argv: ["--head", "head", "--pull-number", "42", "--submission-only", "yes"], env })).resolves.toMatchObject({ exitCode: 1 });
+  });
+
+  it.each([
+    ["code failure", { review: async () => failResult(firstPath) }],
+    ["infrastructure failure", { review: async () => { throw new ReviewFailure({ stage: "model-request", reason: "MODEL_REQUEST_FAILED", detail: "safe" }); } }],
+  ])("returns nonzero after completing a %s check", async (_name, openCodeClient) => {
+    const { options, completed } = reviewOptions();
+
+    const outcome = await main({
+      argv: ["--base", "base", "--head", "head", "--pull-number", "42", "--submission-only", "true"],
+      env: {
+        GITHUB_REPOSITORY: "example/leetdash",
+        GITHUB_TOKEN: "github-secret",
+        GITHUB_SERVER_URL: "https://github.example",
+        GITHUB_RUN_ID: "9",
+        OPENCODE_API_KEY: "opencode-secret",
+        OPENCODE_REVIEW_MODEL: "opencode-go/kimi-k2.7-code",
+      },
+      getChangedFiles: () => [{ status: "A", path: firstPath }],
+      githubClient: options.githubClient,
+      leetcodeClient: options.leetcodeClient,
+      openCodeClient,
+      catalog,
+      readFile: options.readFile,
+    });
+
+    expect(outcome.exitCode).toBe(1);
+    expect(completed[0].conclusion).toBe("failure");
   });
 });

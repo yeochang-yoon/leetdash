@@ -1,4 +1,4 @@
-import { appendFile, readFile } from "node:fs/promises";
+import { appendFile, lstat, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -41,6 +41,58 @@ function failureForStage(stage) {
   return new ReviewFailure({ stage: safeFailures[stage] ? stage : "catalog-resolve", reason, detail });
 }
 
+function sourceReadFailure() {
+  return new ReviewFailure({
+    stage: "catalog-resolve",
+    reason: "CATALOG_MAPPING_FAILED",
+    detail: "Submission source is unavailable.",
+  });
+}
+
+async function defaultSourceReader(filePath, {
+  checkoutRoot = process.cwd(),
+  lstat: lstatFile = lstat,
+  readFile: readSource = readFile,
+} = {}) {
+  const root = path.resolve(checkoutRoot);
+  const resolvedPath = path.resolve(root, String(filePath ?? ""));
+  const relativePath = path.relative(root, resolvedPath);
+  if (
+    relativePath === ""
+    || relativePath === ".."
+    || relativePath.startsWith(`..${path.sep}`)
+    || path.isAbsolute(relativePath)
+  ) {
+    throw sourceReadFailure();
+  }
+
+  let entry;
+  try {
+    entry = await lstatFile(resolvedPath);
+  } catch {
+    throw sourceReadFailure();
+  }
+  if (
+    !entry
+    || typeof entry.isSymbolicLink !== "function"
+    || typeof entry.isFile !== "function"
+    || entry.isSymbolicLink()
+    || !entry.isFile()
+  ) {
+    throw sourceReadFailure();
+  }
+
+  try {
+    return await readSource(resolvedPath, "utf8");
+  } catch {
+    throw sourceReadFailure();
+  }
+}
+
+async function defaultCatalogLoader() {
+  return JSON.parse(await readFile(path.join(process.cwd(), "data", "problem-catalog.json"), "utf8"));
+}
+
 function noSolutionsMarkdown({ headSha, runUrl }) {
   return [
     "<!-- leetdash-opencode-review -->",
@@ -59,8 +111,9 @@ async function reviewPullRequest({
   githubClient,
   leetcodeClient,
   openCodeClient,
-  readFile: readSource = readFile,
+  readFile: readSource = defaultSourceReader,
   catalog,
+  loadCatalog = defaultCatalogLoader,
   changedFiles = [],
   headSha,
   pullNumber,
@@ -75,7 +128,6 @@ async function reviewPullRequest({
     title: "OpenCode review started",
     summary: "Submission review is running.",
   });
-  const paths = submissionOnly ? changedFiles.filter(isReviewableSolution) : [];
   const questions = new Map();
   const results = [];
   let stage = "catalog-resolve";
@@ -83,34 +135,44 @@ async function reviewPullRequest({
   let markdown;
   let conclusion = "success";
 
-  if (!submissionOnly) {
-    markdown = notApplicableMarkdown();
-  } else if (paths.length === 0) {
-    markdown = noSolutionsMarkdown({ headSha, runUrl });
-  } else {
-    try {
-      for (const file of paths) {
+  try {
+    if (!submissionOnly) {
+      markdown = notApplicableMarkdown();
+    } else {
+      const paths = changedFiles.filter((file) => {
+        if (!file || typeof file.status !== "string" || typeof file.path !== "string") {
+          throw new TypeError("Malformed changed-file entry.");
+        }
+        return isReviewableSolution(file);
+      });
+      if (paths.length === 0) {
+        markdown = noSolutionsMarkdown({ headSha, runUrl });
+      } else {
         stage = "catalog-resolve";
-        const resolved = resolveCatalogProblem(file.path, catalog);
-        const source = await readSource(resolved.path, "utf8");
-        stage = "problem-fetch";
-        if (!questions.has(resolved.slug)) questions.set(resolved.slug, leetcodeClient.getQuestion(resolved.slug));
-        const rawQuestion = await questions.get(resolved.slug);
-        stage = "problem-parse";
-        const question = normalizeQuestionData(rawQuestion, resolved.extension);
-        const prompt = buildReviewPrompt({ resolved, question, source });
-        stage = "model-request";
-        const raw = await openCodeClient.review({ model, apiKey, prompt });
-        stage = "model-response";
-        results.push(parseReviewResult(raw, resolved.path));
+        const activeCatalog = catalog ?? await loadCatalog();
+        for (const file of paths) {
+          stage = "catalog-resolve";
+          const resolved = resolveCatalogProblem(file.path, activeCatalog);
+          const source = await readSource(resolved.path);
+          stage = "problem-fetch";
+          if (!questions.has(resolved.slug)) questions.set(resolved.slug, leetcodeClient.getQuestion(resolved.slug));
+          const rawQuestion = await questions.get(resolved.slug);
+          stage = "problem-parse";
+          const question = normalizeQuestionData(rawQuestion, resolved.extension);
+          const prompt = buildReviewPrompt({ resolved, question, source });
+          stage = "model-request";
+          const raw = await openCodeClient.review({ model, apiKey, prompt });
+          stage = "model-response";
+          results.push(parseReviewResult(raw, resolved.path));
+        }
+        conclusion = results.every((result) => result.verdict === "PASS") ? "success" : "failure";
+        markdown = renderReviewComment({ headSha, results, runUrl });
       }
-      conclusion = results.every((result) => result.verdict === "PASS") ? "success" : "failure";
-      markdown = renderReviewComment({ headSha, results, runUrl });
-    } catch (error) {
-      failure = error instanceof ReviewFailure ? error : failureForStage(stage);
-      conclusion = "failure";
-      markdown = renderInfrastructureFailure({ headSha, failure, runUrl });
     }
+  } catch (error) {
+    failure = error instanceof ReviewFailure ? error : failureForStage(stage);
+    conclusion = "failure";
+    markdown = renderInfrastructureFailure({ headSha, failure, runUrl });
   }
 
   let summary = markdown;
@@ -140,7 +202,11 @@ function parseArgs(argv) {
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === "--submission-only") {
-      args.submissionOnly = true;
+      const value = argv[index + 1];
+      if (value === "true") args.submissionOnly = true;
+      else if (value === "false") args.submissionOnly = false;
+      else args.submissionOnlyInvalid = true;
+      index += 1;
     } else if (["--base", "--head", "--pull-number", "--changed-files"].includes(argument)) {
       args[argument.slice(2).replace(/-([a-z])/g, (_, letter) => letter.toUpperCase())] = argv[index + 1];
       index += 1;
@@ -157,49 +223,57 @@ function requiredConfiguration(args, env) {
   if (!args.head) missing.push("--head");
   if (!env.GITHUB_SERVER_URL) missing.push("GITHUB_SERVER_URL");
   if (!env.GITHUB_RUN_ID) missing.push("GITHUB_RUN_ID");
-  if (args.submissionOnly && !env.OPENCODE_API_KEY) missing.push("OPENCODE_API_KEY");
-  if (args.submissionOnly && !env.OPENCODE_REVIEW_MODEL) missing.push("OPENCODE_REVIEW_MODEL");
+  if (args.submissionOnly === true && !env.OPENCODE_API_KEY) missing.push("OPENCODE_API_KEY");
+  if (args.submissionOnly === true && !env.OPENCODE_REVIEW_MODEL) missing.push("OPENCODE_REVIEW_MODEL");
   return missing;
 }
 
-async function main() {
-  const args = parseArgs(process.argv.slice(2));
-  const missing = requiredConfiguration(args, process.env);
-  if (missing.length > 0) {
-    console.error(`Missing required configuration: ${missing.join(", ")}`);
-    process.exitCode = 1;
-    return;
+async function main(options = {}) {
+  const argv = options.argv ?? process.argv.slice(2);
+  const env = options.env ?? process.env;
+  const args = parseArgs(argv);
+  if (args.submissionOnlyInvalid) {
+    console.error("Invalid configuration: --submission-only");
+    return { exitCode: 1 };
   }
 
-  const runUrl = `${process.env.GITHUB_SERVER_URL.replace(/\/$/, "")}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
-  const changedFiles = getChangedFiles({
+  const missing = requiredConfiguration(args, env);
+  if (missing.length > 0) {
+    console.error(`Missing required configuration: ${missing.join(", ")}`);
+    return { exitCode: 1 };
+  }
+
+  const runUrl = `${env.GITHUB_SERVER_URL.replace(/\/$/, "")}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}`;
+  const changedFiles = (options.getChangedFiles ?? getChangedFiles)({
     base: args.base,
     head: args.head,
     changedFilesPath: args.changedFiles,
   });
-  const catalog = JSON.parse(await readFile(path.join(process.cwd(), "data", "problem-catalog.json"), "utf8"));
-  await reviewPullRequest({
-    githubClient: new GitHubReviewClient({ repository: process.env.GITHUB_REPOSITORY, token: process.env.GITHUB_TOKEN }),
-    leetcodeClient: new LeetCodeClient(),
-    openCodeClient: new OpenCodeClient(),
-    catalog,
+  const result = await reviewPullRequest({
+    githubClient: options.githubClient ?? new GitHubReviewClient({ repository: env.GITHUB_REPOSITORY, token: env.GITHUB_TOKEN }),
+    leetcodeClient: options.leetcodeClient ?? new LeetCodeClient(),
+    openCodeClient: options.openCodeClient ?? new OpenCodeClient(),
+    readFile: options.readFile,
+    catalog: options.catalog,
+    loadCatalog: options.loadCatalog,
     changedFiles,
     headSha: args.head,
     pullNumber: Number(args.pullNumber),
     runUrl,
-    apiKey: process.env.OPENCODE_API_KEY,
-    model: process.env.OPENCODE_REVIEW_MODEL,
-    summaryPath: process.env.GITHUB_STEP_SUMMARY,
-    submissionOnly: args.submissionOnly,
+    apiKey: env.OPENCODE_API_KEY,
+    model: env.OPENCODE_REVIEW_MODEL,
+    summaryPath: options.summaryPath ?? env.GITHUB_STEP_SUMMARY,
+    submissionOnly: args.submissionOnly === true,
   });
+  return { exitCode: result.conclusion === "failure" ? 1 : 0, result };
 }
 
 const invokedPath = process.argv[1] ? path.resolve(process.argv[1]) : "";
 if (invokedPath === fileURLToPath(import.meta.url)) {
-  main().catch(() => {
+  main().then(({ exitCode }) => { process.exitCode = exitCode; }).catch(() => {
     console.error("OpenCode review execution failed.");
     process.exitCode = 1;
   });
 }
 
-export { appendReviewSummary, main, reviewPullRequest };
+export { appendReviewSummary, defaultSourceReader, main, reviewPullRequest };
