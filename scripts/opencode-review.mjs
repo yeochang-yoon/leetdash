@@ -49,6 +49,14 @@ function sourceReadFailure() {
   });
 }
 
+function changedFilesLoadFailure() {
+  return new ReviewFailure({
+    stage: "catalog-resolve",
+    reason: "CATALOG_MAPPING_FAILED",
+    detail: "변경된 제출 파일 목록을 가져오지 못했습니다.",
+  });
+}
+
 async function defaultSourceReader(filePath, {
   checkoutRoot = process.cwd(),
   lstat: lstatFile = lstat,
@@ -114,7 +122,8 @@ async function reviewPullRequest({
   readFile: readSource = defaultSourceReader,
   catalog,
   loadCatalog = defaultCatalogLoader,
-  changedFiles = [],
+  changedFiles,
+  loadChangedFiles = async () => [],
   headSha,
   pullNumber,
   runUrl,
@@ -139,7 +148,15 @@ async function reviewPullRequest({
     if (!submissionOnly) {
       markdown = notApplicableMarkdown();
     } else {
-      const paths = changedFiles.filter((file) => {
+      let activeChangedFiles = changedFiles;
+      if (activeChangedFiles === undefined) {
+        try {
+          activeChangedFiles = await loadChangedFiles();
+        } catch {
+          throw changedFilesLoadFailure();
+        }
+      }
+      const paths = activeChangedFiles.filter((file) => {
         if (!file || typeof file.status !== "string" || typeof file.path !== "string") {
           throw new TypeError("Malformed changed-file entry.");
         }
@@ -244,11 +261,6 @@ async function main(options = {}) {
   }
 
   const runUrl = `${env.GITHUB_SERVER_URL.replace(/\/$/, "")}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}`;
-  const changedFiles = (options.getChangedFiles ?? getChangedFiles)({
-    base: args.base,
-    head: args.head,
-    changedFilesPath: args.changedFiles,
-  });
   const result = await reviewPullRequest({
     githubClient: options.githubClient ?? new GitHubReviewClient({ repository: env.GITHUB_REPOSITORY, token: env.GITHUB_TOKEN }),
     leetcodeClient: options.leetcodeClient ?? new LeetCodeClient(),
@@ -256,7 +268,12 @@ async function main(options = {}) {
     readFile: options.readFile,
     catalog: options.catalog,
     loadCatalog: options.loadCatalog,
-    changedFiles,
+    changedFiles: options.changedFiles,
+    loadChangedFiles: () => (options.getChangedFiles ?? getChangedFiles)({
+      base: args.base,
+      head: args.head,
+      changedFilesPath: args.changedFiles,
+    }),
     headSha: args.head,
     pullNumber: Number(args.pullNumber),
     runUrl,

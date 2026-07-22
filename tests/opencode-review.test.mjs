@@ -252,6 +252,19 @@ describe("reviewPullRequest", () => {
     expect(completed[0].conclusion).toBe("failure");
     expect(completed[0].summary).not.toContain("raw catalog contents");
   });
+
+  it("does not discover changed files for a not-applicable review", async () => {
+    const { options, completed } = reviewOptions({
+      submissionOnly: false,
+      changedFiles: undefined,
+      loadChangedFiles: async () => { throw new Error("must not run"); },
+    });
+
+    const result = await reviewPullRequest(options);
+
+    expect(result.conclusion).toBe("success");
+    expect(completed[0].summary).toContain("not applicable");
+  });
 });
 
 describe("defaultSourceReader", () => {
@@ -407,5 +420,35 @@ describe("opencode-review CLI", () => {
 
     expect(outcome.exitCode).toBe(1);
     expect(completed[0].conclusion).toBe("failure");
+  });
+
+  it("exits nonzero after safely completing a changed-file discovery failure", async () => {
+    const { options, completed } = reviewOptions();
+    const calls = [];
+    const rawFailure = "changed-files-secret";
+    options.githubClient.createCheck = async () => { calls.push("check"); return { id: 17 }; };
+
+    const outcome = await main({
+      argv: ["--base", "base", "--head", "head", "--pull-number", "42", "--submission-only", "true"],
+      env: {
+        GITHUB_REPOSITORY: "example/leetdash",
+        GITHUB_TOKEN: "github-secret",
+        GITHUB_SERVER_URL: "https://github.example",
+        GITHUB_RUN_ID: "9",
+        OPENCODE_API_KEY: "opencode-secret",
+        OPENCODE_REVIEW_MODEL: "opencode-go/kimi-k2.7-code",
+      },
+      getChangedFiles: () => { calls.push("changed-files"); throw new Error(rawFailure); },
+      githubClient: options.githubClient,
+      leetcodeClient: options.leetcodeClient,
+      openCodeClient: options.openCodeClient,
+      catalog,
+    });
+
+    expect(calls).toEqual(["check", "changed-files"]);
+    expect(outcome.exitCode).toBe(1);
+    expect(completed[0].conclusion).toBe("failure");
+    expect(completed[0].summary).toContain("변경된 제출 파일 목록을 가져오지 못했습니다.");
+    expect(completed[0].summary).not.toContain(rawFailure);
   });
 });
