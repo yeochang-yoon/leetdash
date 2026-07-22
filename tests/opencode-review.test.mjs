@@ -168,7 +168,39 @@ describe("reviewPullRequest", () => {
     expect(comments[0].body).not.toContain(rawModelOutput);
   });
 
-  it("keeps redaction sentinels out of logs, comments, checks, summaries, and safe failure details", async () => {
+  it("redacts multiline Markdown-significant submitted source before rendering model fields", async () => {
+    const source = "class Solution {\n  // submitted-source-sentinel | <script>\n}";
+    const { options, comments, completed } = reviewOptions({
+      readFile: async () => source,
+      openCodeClient: { review: async () => JSON.stringify({ ...JSON.parse(passResult(firstPath)), summary: source }) },
+    });
+
+    const result = await reviewPullRequest(options);
+    const output = [result.markdown, comments[0].body, completed[0].summary].join("\n");
+
+    expect(output).not.toContain("submitted-source-sentinel");
+    expect(output).toContain("[submitted source redacted]");
+  });
+
+  it.each([
+    ["PASS", "Verdict: PASS"],
+    ["<!-- leetdash-opencode-review -->", "<!-- leetdash-opencode-review -->"],
+  ])("preserves trusted review framing when submitted source equals %s", async (source, requiredValue) => {
+    const { options, comments, completed } = reviewOptions({
+      readFile: async () => source,
+      openCodeClient: { review: async () => JSON.stringify({ ...JSON.parse(passResult(firstPath)), summary: source }) },
+    });
+
+    await reviewPullRequest(options);
+
+    const output = [comments[0].body, completed[0].summary].join("\n");
+    expect(output).toContain(requiredValue);
+    expect(output).toContain("Commit: head-sha-123");
+    expect(output).toContain(firstPath);
+    expect(output).toContain("https://github.example/actions/runs/9");
+  });
+
+  it("keeps every redaction sentinel out of managed outputs on real client-to-orchestrator paths", async () => {
     const sentinels = {
       apiKey: "secret-api-key",
       authorization: "Bearer secret-token",
@@ -176,39 +208,60 @@ describe("reviewPullRequest", () => {
       graphqlBody: "raw-graphql-body",
       source: "submitted-source-sentinel",
     };
-    const summaryPath = path.join(await mkdtemp(path.join(tmpdir(), "opencode-review-")), "summary.md");
-    const { options, comments } = reviewOptions({
-      apiKey: sentinels.apiKey,
-      summaryPath,
-      readFile: async () => sentinels.source,
-      openCodeClient: {
-        review: async () => JSON.stringify({ ...JSON.parse(passResult(firstPath)), summary: sentinels.source }),
-      },
-    });
-    const checks = [];
-    options.githubClient.createCheck = async (value) => { checks.push(value); return { id: 17 }; };
-    options.githubClient.completeCheck = async (value) => { checks.push(value); };
-    const safeDetails = [];
+    const headers = [];
     const logSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const captured = [];
 
-    try {
-      await new OpenCodeClient({
-        fetchImpl: async () => { throw new Error(`${sentinels.authorization} ${sentinels.modelBody}`); },
-      }).review({ model: "opencode-go/kimi-k2.7-code", apiKey: sentinels.apiKey, prompt: "review" }).catch((error) => safeDetails.push(error.detail));
-      await new LeetCodeClient({
-        fetchImpl: async () => ({ ok: false, status: 503, json: async () => ({ error: sentinels.graphqlBody }) }),
-      }).getQuestion("two-sum").catch((error) => safeDetails.push(error.detail));
+    const capture = async ({ apiKey, source = "class Solution {}", leetcodeClient, openCodeClient }) => {
+      const summaryPath = path.join(await mkdtemp(path.join(tmpdir(), "opencode-review-")), "summary.md");
+      const { options, comments } = reviewOptions({ apiKey, summaryPath, readFile: async () => source, leetcodeClient, openCodeClient });
+      const checks = [];
+      options.githubClient.createCheck = async (value) => { checks.push(value); return { id: 17 }; };
+      options.githubClient.completeCheck = async (value) => { checks.push(value); };
       await reviewPullRequest(options);
-
-      const captured = [
-        ...logSpy.mock.calls.flat(),
+      captured.push(
         ...comments.map(({ body }) => body),
         ...checks.flatMap((check) => [check.title, check.summary]),
         await readFile(summaryPath, "utf8"),
-        ...safeDetails,
-      ].filter((value) => value !== undefined).join("\n");
+      );
+    };
+    const successfulQuestionClient = () => new LeetCodeClient({
+      fetchImpl: async () => ({ ok: true, status: 200, headers: { get: () => null }, json: async () => ({ data: { question } }) }),
+    });
 
-      Object.values(sentinels).forEach((sentinel) => expect(captured).not.toContain(sentinel));
+    try {
+      await capture({
+        apiKey: sentinels.apiKey,
+        source: sentinels.source,
+        leetcodeClient: successfulQuestionClient(),
+        openCodeClient: new OpenCodeClient({
+          fetchImpl: async (_url, request) => {
+            headers.push(request.headers.Authorization);
+            return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ choices: [{ message: { content: JSON.stringify({ ...JSON.parse(passResult(firstPath)), summary: sentinels.source }) } }] }) };
+          },
+        }),
+      });
+      await capture({
+        apiKey: "secret-token",
+        leetcodeClient: successfulQuestionClient(),
+        openCodeClient: new OpenCodeClient({
+          fetchImpl: async (_url, request) => {
+            headers.push(request.headers.Authorization);
+            return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ choices: [{ message: { content: sentinels.modelBody } }] }) };
+          },
+        }),
+      });
+      await capture({
+        apiKey: sentinels.apiKey,
+        leetcodeClient: new LeetCodeClient({
+          fetchImpl: async () => ({ ok: true, status: 200, headers: { get: () => null }, json: async () => ({ errors: [{ message: sentinels.graphqlBody }] }) }),
+        }),
+        openCodeClient: { review: async () => { throw new Error("must not run"); } },
+      });
+
+      const output = [...logSpy.mock.calls.flat(), ...captured].join("\n");
+      expect(headers).toEqual([`Bearer ${sentinels.apiKey}`, sentinels.authorization]);
+      Object.values(sentinels).forEach((sentinel) => expect(output).not.toContain(sentinel));
     } finally {
       logSpy.mockRestore();
     }

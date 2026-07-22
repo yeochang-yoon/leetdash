@@ -115,9 +115,45 @@ function notApplicableMarkdown() {
   return "OpenCode submission review is not applicable to this pull request.";
 }
 
-function redactSubmittedSource(markdown, source) {
-  if (typeof source !== "string" || source.length === 0) return markdown;
-  return markdown.split(source).join("[submitted source redacted]");
+function redactModelText(value, sources) {
+  if (typeof value !== "string") return value;
+  return sources.reduce(
+    (redacted, source) => typeof source === "string" && source.length > 0
+      ? redacted.split(source).join("[submitted source redacted]")
+      : redacted,
+    value,
+  );
+}
+
+function redactReviewResult(result, sources) {
+  return {
+    ...result,
+    summary: redactModelText(result.summary, sources),
+    correctness: {
+      ...result.correctness,
+      reason: redactModelText(result.correctness.reason, sources),
+    },
+    complexity: {
+      ...result.complexity,
+      time: redactModelText(result.complexity.time, sources),
+      space: redactModelText(result.complexity.space, sources),
+      reason: redactModelText(result.complexity.reason, sources),
+    },
+    blocking_findings: result.blocking_findings.map((finding) => ({
+      ...finding,
+      reason: redactModelText(finding.reason, sources),
+      evidence: redactModelText(finding.evidence, sources),
+      counterexample: {
+        input: redactModelText(finding.counterexample.input, sources),
+        expected: redactModelText(finding.counterexample.expected, sources),
+        actual: redactModelText(finding.counterexample.actual, sources),
+      },
+    })),
+    non_blocking_suggestions: result.non_blocking_suggestions.map((suggestion) => ({
+      ...suggestion,
+      suggestion: redactModelText(suggestion.suggestion, sources),
+    })),
+  };
 }
 
 async function reviewPullRequest({
@@ -190,10 +226,8 @@ async function reviewPullRequest({
           results.push(parseReviewResult(raw, resolved.path));
         }
         conclusion = results.every((result) => result.verdict === "PASS") ? "success" : "failure";
-        markdown = submittedSources.reduce(
-          (rendered, source) => redactSubmittedSource(rendered, source),
-          renderReviewComment({ headSha, results, runUrl }),
-        );
+        results.splice(0, results.length, ...results.map((result) => redactReviewResult(result, submittedSources)));
+        markdown = renderReviewComment({ headSha, results, runUrl });
       }
     }
   } catch (error) {
